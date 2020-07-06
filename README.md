@@ -3,7 +3,7 @@ Dreamer
 
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 
-This is a Pytorch implementation of paper: Dreamer to control: Learning Behaviors by Latent Imagination. **Get similar results compared with original Tensorflow implementation.** Tested on dm_control suite, with tasks cartpole-balance, cheetah-run, and ball-in-cup_catch. Testing on more tasks is ongoing.
+This is a Pytorch implementation of paper: [Dreamer to control: Learning Behaviors by Latent Imagination](https://danijar.com/project/dreamer/). **Get similar results compared with original Tensorflow implementation.** Tested on dm_control suite, with tasks cartpole-balance, cheetah-run, and ball-in-cup_catch. Testing on more tasks is ongoing.
 
 Requirements
 ------------
