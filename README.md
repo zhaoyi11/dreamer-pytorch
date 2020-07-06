@@ -19,7 +19,7 @@ To train the model:
 ------------
 `python3 main.py --env [env-name]` 
 
-More optional environments are listed in `env.py` . The code is only tested on dm_control suite. If yo u have any question, feel free to post issues.
+More optional environments are listed in `env.py` . The code is only tested on dm_control suite. If you have any question, feel free to post issues.
 
 ## Some training results:
 
