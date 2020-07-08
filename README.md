@@ -25,7 +25,7 @@ More optional environments are listed in `env.py` . The code is only tested on d
 
 - cartpole-balance
 
-  ![cartpole](./results/cartpole-balance/cartpole.png)
+  ![cartpole](./results/cartpole-balance/cartpole_test.png)
 
 - Cheetah-run
 
@@ -40,9 +40,9 @@ References:
 
 [1] [Dream to Control: Learning Behaviors by Latent Imagination](https://arxiv.org/abs/1912.01603)  
 
-[2] [Tensorflow implementation, with tensorflow1.0] (https://github.com/google-research/dreamer)
+[2] [Tensorflow implementation, with tensorflow1.0](https://github.com/google-research/dreamer)
 
-[3] [Tensorflow implementation, with tensorflow2.0] (https://github.com/danijar/dreamer)
+[3] [Tensorflow implementation, with tensorflow2.0](https://github.com/danijar/dreamer)
 
 [4] [Learning Latent Dynamics for Planning from Pixels](https://arxiv.org/abs/1811.04551)  
 
