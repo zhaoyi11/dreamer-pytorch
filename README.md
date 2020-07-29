@@ -36,6 +36,7 @@ More optional environments are listed in `env.py` . The code is only tested on d
   ![ball-in-cup](./results/cup-catch/cup-catch.png)
 
 - Walker-walk
+
   ![walker-walk](./results/walker-walk/walker.png)
 
 
