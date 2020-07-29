@@ -25,15 +25,19 @@ More optional environments are listed in `env.py` . The code is only tested on d
 
 - cartpole-balance
 
-  ![cartpole](./results/cartpole-balance/cartpole_test.png)
+  ![cartpole](./results/cartpole-balance/cartpole.png)
 
 - Cheetah-run
 
-  ![cheetah-run](./results/cheetah-run/cheetah-run.png)
+  ![cheetah-run](./results/cheetah-run/cheetah.png)
 
 - Ball-in-cup_catch
 
-  ![ball-in-cup](./results/ball-in-cup/ball-in-cup.png)
+  ![ball-in-cup](./results/cup-catch/cup-catch.png)
+
+- Walker-walk
+  ![walker-walk](./results/walker-walk/walker.png)
+
 
 References:
 ------------

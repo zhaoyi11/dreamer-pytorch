@@ -210,7 +210,8 @@ if args.test:
       posterior_state = torch.zeros(1, args.state_size, device=args.device)
       action = torch.zeros(1, env.action_size, device=args.device)
 
-      for t in tqdm(range(args.max_episode_length // args.action_repeat)):
+      pbar = tqdm(range(args.max_episode_length // args.action_repeat))
+      for t in pbar:
         belief, posterior_state, action, observation, reward, done = update_belief_and_act(
           args, 
           env, 
