@@ -259,6 +259,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
       observations[1:], 
       reduction='none').sum(dim=2 if args.symbolic else (2, 3, 4)).mean(dim=(0, 1))
 
+
     reward_loss = F.mse_loss(
       bottle(reward_model, (beliefs, posterior_states)), 
       rewards[1:], 
