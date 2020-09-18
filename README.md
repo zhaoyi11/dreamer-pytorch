@@ -23,21 +23,11 @@ More optional environments are listed in `env.py` . The code is only tested on d
 
 ## Some training results:
 
-- cartpole-balance
+![dreamer](./results/dreamer.pdf)
 
-  ![cartpole](./results/cartpole-balance/cartpole.png)
+- Robustness of action repeat
+![act_dreamer](./results/act_dreamer.pdf)
 
-- Cheetah-run
-
-  ![cheetah-run](./results/cheetah-run/cheetah.png)
-
-- Ball-in-cup_catch
-
-  ![ball-in-cup](./results/cup-catch/cup-catch.png)
-
-- Walker-walk
-
-  ![walker-walk](./results/walker-walk/walker.png)
 
 
 References:
