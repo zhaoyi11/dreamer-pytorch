@@ -23,10 +23,10 @@ More optional environments are listed in `env.py` . The code is only tested on d
 
 ## Some training results:
 
-![dreamer](./results/dreamer.pdf)
+![dreamer](./results/dreamer.png)
 
 - Robustness of action repeat
-![act_dreamer](./results/act_dreamer.pdf)
+![act_dreamer](./results/act_dreamer.png)
 
 
 
