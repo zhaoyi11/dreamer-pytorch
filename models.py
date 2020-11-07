@@ -18,7 +18,7 @@ def bottle(f, x_tuple):
   return output
 
 
-class TransitionModel(jit.ScriptModule):
+class TransitionModel(nn.Module):
   __constants__ = ['min_std_dev']
 
   def __init__(self, belief_size, state_size, action_size, hidden_size, embedding_size, activation_function='relu', min_std_dev=0.1):
@@ -43,7 +43,7 @@ class TransitionModel(jit.ScriptModule):
   # ps: -X-
   # b : -x--X--X--X--X--X-
   # s : -x--X--X--X--X--X-
-  @jit.script_method
+  # @jit.script_method
   def forward(self, prev_state:torch.Tensor, actions:torch.Tensor, prev_belief:torch.Tensor, observations:Optional[torch.Tensor]=None, nonterminals:Optional[torch.Tensor]=None) -> List[torch.Tensor]:
     '''
     Input: init_belief, init_state:  torch.Size([50, 200]) torch.Size([50, 30])
@@ -57,7 +57,7 @@ class TransitionModel(jit.ScriptModule):
     # Loop over time sequence
     for t in range(T - 1):
       _state = prior_states[t] if observations is None else posterior_states[t]  # Select appropriate previous state
-      _state = _state if nonterminals is None else _state * nonterminals[t]  # Mask if previous transition was terminal
+      _state = _state if (nonterminals is None or t == 0) else _state * nonterminals[t-1]  # Mask if previous transition was terminal
       # Compute belief (deterministic hidden state)
       hidden = self.act_fn(self.fc_embed_state_action(torch.cat([_state, actions[t]], dim=1)))
       beliefs[t + 1] = self.rnn(hidden, beliefs[t])
@@ -65,7 +65,7 @@ class TransitionModel(jit.ScriptModule):
       hidden = self.act_fn(self.fc_embed_belief_prior(beliefs[t + 1]))
       prior_means[t + 1], _prior_std_dev = torch.chunk(self.fc_state_prior(hidden), 2, dim=1)
       prior_std_devs[t + 1] = F.softplus(_prior_std_dev) + self.min_std_dev
-      prior_states[t + 1] = prior_means[t + 1] + prior_std_devs[t + 1] * torch.randn_like(prior_means[t + 1])     
+      prior_states[t + 1] = prior_means[t + 1] + prior_std_devs[t + 1] * torch.randn_like(prior_means[t + 1])
       if observations is not None:
         # Compute state posterior by applying transition dynamics and using current observation
         t_ = t - 1  # Use t_ to deal with different time indexing for observations
@@ -80,7 +80,7 @@ class TransitionModel(jit.ScriptModule):
     return hidden
 
 
-class SymbolicObservationModel(jit.ScriptModule):
+class SymbolicObservationModel(nn.Module):
   def __init__(self, observation_size, belief_size, state_size, embedding_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
@@ -88,7 +88,6 @@ class SymbolicObservationModel(jit.ScriptModule):
     self.fc2 = nn.Linear(embedding_size, embedding_size)
     self.fc3 = nn.Linear(embedding_size, observation_size)
 
-  @jit.script_method
   def forward(self, belief, state):
     hidden = self.act_fn(self.fc1(torch.cat([belief, state], dim=1)))
     hidden = self.act_fn(self.fc2(hidden))
@@ -96,9 +95,7 @@ class SymbolicObservationModel(jit.ScriptModule):
     return observation
 
 
-class VisualObservationModel(jit.ScriptModule):
-  __constants__ = ['embedding_size']
-  
+class VisualObservationModel(nn.Module):
   def __init__(self, belief_size, state_size, embedding_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
@@ -109,7 +106,6 @@ class VisualObservationModel(jit.ScriptModule):
     self.conv3 = nn.ConvTranspose2d(64, 32, 6, stride=2)
     self.conv4 = nn.ConvTranspose2d(32, 3, 6, stride=2)
 
-  @jit.script_method
   def forward(self, belief, state):
     hidden = self.fc1(torch.cat([belief, state], dim=1))  # No nonlinearity here
     hidden = hidden.view(-1, self.embedding_size, 1, 1)
@@ -127,7 +123,7 @@ def ObservationModel(symbolic, observation_size, belief_size, state_size, embedd
     return VisualObservationModel(belief_size, state_size, embedding_size, activation_function)
 
 
-class RewardModel(jit.ScriptModule):
+class RewardModel(nn.Module):
   def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
@@ -135,7 +131,6 @@ class RewardModel(jit.ScriptModule):
     self.fc2 = nn.Linear(hidden_size, hidden_size)
     self.fc3 = nn.Linear(hidden_size, 1)
 
-  @jit.script_method
   def forward(self, belief, state):
     x = torch.cat([belief, state],dim=1)
     hidden = self.act_fn(self.fc1(x))
@@ -145,7 +140,7 @@ class RewardModel(jit.ScriptModule):
     return reward
 
 
-class ValueModel(jit.ScriptModule):
+class ValueModel(nn.Module):
   def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
@@ -154,7 +149,6 @@ class ValueModel(jit.ScriptModule):
     self.fc3 = nn.Linear(hidden_size, hidden_size)
     self.fc4 = nn.Linear(hidden_size, 1)
 
-  @jit.script_method
   def forward(self, belief, state):
     x = torch.cat([belief, state],dim=1)
     hidden = self.act_fn(self.fc1(x))
@@ -164,7 +158,7 @@ class ValueModel(jit.ScriptModule):
     return reward
 
 
-class SymbolicEncoder(jit.ScriptModule):
+class SymbolicEncoder(nn.Module):
   def __init__(self, observation_size, embedding_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
@@ -172,7 +166,6 @@ class SymbolicEncoder(jit.ScriptModule):
     self.fc2 = nn.Linear(embedding_size, embedding_size)
     self.fc3 = nn.Linear(embedding_size, embedding_size)
 
-  @jit.script_method
   def forward(self, observation):
     hidden = self.act_fn(self.fc1(observation))
     hidden = self.act_fn(self.fc2(hidden))
@@ -180,9 +173,7 @@ class SymbolicEncoder(jit.ScriptModule):
     return hidden
 
 
-class VisualEncoder(jit.ScriptModule):
-  __constants__ = ['embedding_size']
-  
+class VisualEncoder(nn.Module):
   def __init__(self, embedding_size, activation_function='relu'):
     super().__init__()
     self.act_fn = getattr(F, activation_function)
@@ -193,7 +184,6 @@ class VisualEncoder(jit.ScriptModule):
     self.conv4 = nn.Conv2d(128, 256, 4, stride=2)
     self.fc = nn.Identity() if embedding_size == 1024 else nn.Linear(1024, embedding_size)
 
-  @jit.script_method
   def forward(self, observation):
     hidden = self.act_fn(self.conv1(observation))
     hidden = self.act_fn(self.conv2(hidden))
@@ -211,6 +201,26 @@ def Encoder(symbolic, observation_size, embedding_size, activation_function='rel
     return VisualEncoder(embedding_size, activation_function)
 
 
+class PCONTModel(nn.Module):
+  """ predict the prob of whether a state is a terminal state. """
+  def __init__(self, belief_size, state_size, hidden_size, activation_function='relu'):
+    super().__init__()
+    self.act_fn = getattr(F, activation_function)
+    self.fc1 = nn.Linear(belief_size + state_size, hidden_size)
+    self.fc2 = nn.Linear(hidden_size, hidden_size)
+    self.fc3 = nn.Linear(hidden_size, hidden_size)
+    self.fc4 = nn.Linear(hidden_size, 1)
+
+  def forward(self, belief, state):
+    x = torch.cat([belief, state],dim=1)
+    hidden = self.act_fn(self.fc1(x))
+    hidden = self.act_fn(self.fc2(hidden))
+    hidden = self.act_fn(self.fc3(hidden))
+    x = self.fc4(hidden).squeeze(dim=1)
+    p = torch.sigmoid(x)
+    return p
+
+
 class ActorModel(nn.Module):
   def __init__(self, action_size, belief_size, state_size, hidden_size, mean_scale=5, min_std=1e-4, init_std=5, activation_function="elu"):
     super().__init__()
@@ -224,15 +234,7 @@ class ActorModel(nn.Module):
     self.init_std = init_std
     self.mean_scale = mean_scale
 
-    # self.fc5.weight.data.uniform_(-3e-3, 3e-3)
-    # self.fc5.bias.data.uniform_(-3e-3, 3e-3)
-
-  def forward(self, belief, state, training=True):
-    """
-    :param training: when training, returned action is reparametrized sample;
-                    otherwise, it will be the mean of policy distribution
-    :return: selected action
-    """
+  def forward(self, belief, state, deterministic=False, with_logprob=False):
     raw_init_std = np.log(np.exp(self.init_std) - 1)
     hidden = self.act_fn(self.fc1(torch.cat([belief, state], dim=-1)))
     hidden = self.act_fn(self.fc2(hidden))
@@ -247,8 +249,18 @@ class ActorModel(nn.Module):
     dist = torch.distributions.TransformedDistribution(dist, transform)
     dist = torch.distributions.independent.Independent(dist, 1)  # Introduces dependence between actions dimension
     dist = SampleDist(dist)  # because after transform a distribution, some methods may become invalid, such as entropy, mean and mode, we need SmapleDist to approximate it.
-    return dist  # dist ~ tanh(Normal(mean, std)); remember when sampling, using rsample() to adopt the reparameterization trick
 
+    if deterministic:
+      action = dist.mean
+    else:
+      action = dist.rsample()
+
+    if with_logprob:
+      logp_pi = dist.log_prob(action)
+    else:
+      logp_pi = None
+
+    return action, logp_pi
 
 
 class SampleDist:
