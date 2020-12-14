@@ -93,12 +93,6 @@ class Dreamer():
             args.hidden_size,
             args.dense_act).to(device=args.device)
 
-    self.value_model2 = ValueModel(
-            args.belief_size,
-            args.state_size,
-            args.hidden_size,
-            args.dense_act).to(device=args.device)
-
     self.pcont_model = PCONTModel(
             args.belief_size,
             args.state_size,
@@ -106,11 +100,8 @@ class Dreamer():
             args.dense_act).to(device=args.device)
 
     self.target_value_model = deepcopy(self.value_model)
-    self.target_value_model2 = deepcopy(self.value_model2)
 
     for p in self.target_value_model.parameters():
-      p.requires_grad = False
-    for p in self.target_value_model2.parameters():
       p.requires_grad = False
 
     # setup the paras to update
@@ -124,7 +115,7 @@ class Dreamer():
     # setup optimizer
     self.world_optimizer = optim.Adam(self.world_param, lr=args.world_lr)
     self.actor_optimizer = optim.Adam(self.actor_model.parameters(), lr=args.actor_lr)
-    self.value_optimizer = optim.Adam(list(self.value_model.parameters())+list(self.value_model2.parameters()), lr=args.value_lr)
+    self.value_optimizer = optim.Adam(list(self.value_model.parameters()), lr=args.value_lr)
 
     # setup the free_nat
     self.free_nats = torch.full((1, ), args.free_nats, dtype=torch.float32, device=args.device)  # Allowed deviation in KL divergence
@@ -178,8 +169,6 @@ class Dreamer():
     # reward and value prediction of imagined trajectories
     imag_rewards = bottle(self.reward_model, (imag_beliefs, imag_states))
     imag_values = bottle(self.value_model, (imag_beliefs, imag_states))
-    imag_values2 = bottle(self.value_model2, (imag_beliefs, imag_states))
-    imag_values = torch.min(imag_values, imag_values2)
 
     with torch.no_grad():
       if self.args.pcont:
@@ -203,8 +192,6 @@ class Dreamer():
     with torch.no_grad():
       # calculate the target with the target nn
       target_imag_values = bottle(self.target_value_model, (imag_beliefs, imag_states))
-      target_imag_values2 = bottle(self.target_value_model2, (imag_beliefs, imag_states))
-      target_imag_values = torch.min(target_imag_values, target_imag_values2)
       imag_rewards = bottle(self.reward_model, (imag_beliefs, imag_states))
 
       if self.args.pcont:
@@ -219,11 +206,8 @@ class Dreamer():
     target_return = returns.detach()
 
     value_pred = bottle(self.value_model, (imag_beliefs, imag_states))[:-1]
-    value_pred2 = bottle(self.value_model2, (imag_beliefs, imag_states))[:-1]
 
     value_loss = F.mse_loss(value_pred, target_return, reduction="none").mean(dim=(0, 1))
-    value_loss2 = F.mse_loss(value_pred2, target_return, reduction="none").mean(dim=(0, 1))
-    value_loss += value_loss2
 
     return value_loss
 
@@ -295,8 +279,6 @@ class Dreamer():
         p.requires_grad = False
       for p in self.value_model.parameters():
         p.requires_grad = False
-      for p in self.value_model2.parameters():
-        p.requires_gard = False
 
       # latent imagination
       imag_beliefs, imag_states, imag_ac_logps = self._latent_imagination(beliefs, posterior_states, with_logprob=self.args.with_logprob)
@@ -313,8 +295,6 @@ class Dreamer():
         p.requires_grad = True
       for p in self.value_model.parameters():
         p.requires_grad = True
-      for p in self.value_model2.parameters():
-        p.requires_grad = True
 
       # update critic
       imag_beliefs = imag_beliefs.detach()
@@ -325,7 +305,6 @@ class Dreamer():
       self.value_optimizer.zero_grad()
       critic_loss.backward()
       nn.utils.clip_grad_norm_(self.value_model.parameters(), self.args.grad_clip_norm, norm_type=2)
-      nn.utils.clip_grad_norm_(self.value_model2.parameters(), self.args.grad_clip_norm, norm_type=2)
       self.value_optimizer.step()
 
       loss_info.append([observation_loss.item(), reward_loss.item(), kl_loss.item(), pcont_loss.item() if self.args.pcont else 0, actor_loss.item(), critic_loss.item()])
@@ -333,8 +312,6 @@ class Dreamer():
     # finally, update target value function every #gradient_steps
     with torch.no_grad():
       self.target_value_model.load_state_dict(self.value_model.state_dict())
-    with torch.no_grad():
-      self.target_value_model2.load_state_dict(self.value_model2.state_dict())
 
     return loss_info
 
