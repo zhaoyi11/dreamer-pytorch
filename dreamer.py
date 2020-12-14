@@ -80,7 +80,7 @@ if torch.cuda.is_available() and not args.disable_cuda:
 else:
   args.device = torch.device('cpu')
 
-metrics = {'steps': [], 'episodes': [], 'train_rewards': [], 'test_episodes': [], 'test_rewards': [],
+metrics = {'env_steps': [], 'episodes': [], 'train_rewards': [], 'test_episodes': [], 'test_rewards': [],
            'observation_loss': [], 'reward_loss': [], 'kl_loss': [], 'pcont_loss': [], 'actor_loss': [], 'value_loss': []}
 
 summary_name = results_dir + "/{}_{}_log"
@@ -98,29 +98,31 @@ D = ExperienceReplay(args.experience_size, args.symbolic, env.observation_size, 
 
 # Initialise dataset D with S random seed episodes
 for s in range(1, args.seed_episodes + 1):
-    observation, done, t = env.reset(), False, 0
-    while not done:
-        action = env.sample_random_action()
-        next_observation, reward, done = env.step(action)
-        D.append(next_observation, action.cpu(), reward, done)  # here use the next_observation
-        observation = next_observation
-        t += 1
-    metrics['steps'].append(t * args.action_repeat + (0 if len(metrics['steps']) == 0 else metrics['steps'][-1]))
-    metrics['episodes'].append(s)
+  observation, done, t = env.reset(), False, 0
+  while not done:
+    action = env.sample_random_action()
+    next_observation, reward, done = env.step(action)
+    D.append(next_observation, action.cpu(), reward, done)  # here use the next_observation
+    observation = next_observation
+    t += 1
+  metrics['env_steps'].append(t * args.action_repeat + (0 if len(metrics['env_steps']) == 0 else metrics['env_steps'][-1]))
+  metrics['episodes'].append(s)
+  print("(random)episodes: {}, total_env_steps: {} ".format(metrics['episodes'][-1], metrics['env_steps'][-1]))
 
+print("--- Finish random data collection  --- ")
 
 if args.models is not '' and os.path.exists(args.models):
-    model_dicts = torch.load(args.models)
-    agent.transition_model.load_state_dict(model_dicts['transition_model'])
-    agent.observation_model.load_state_dict(model_dicts['observation_model'])
-    agent.reward_model.load_state_dict(model_dicts['reward_model1'])
-    agent.encoder.load_state_dict(model_dicts['encoder'])
-    agent.actor_model.load_state_dict(model_dicts['actor_model'])
-    agent.value_model.load_state_dict(model_dicts['value_model'])
-    agent.value_model2.load_state_dict(model_dicts['value_model2'])
-    agent.world_optimizer.load_state_dict(model_dicts['world_optimizer'])
-    agent.actor_optimizer.load_state_dict(model_dicts['actor_optimizer'])
-    agent.value_optimizer.load_state_dict(model_dicts['value_optimizer'])
+  model_dicts = torch.load(args.models)
+  agent.transition_model.load_state_dict(model_dicts['transition_model'])
+  agent.observation_model.load_state_dict(model_dicts['observation_model'])
+  agent.reward_model.load_state_dict(model_dicts['reward_model1'])
+  agent.encoder.load_state_dict(model_dicts['encoder'])
+  agent.actor_model.load_state_dict(model_dicts['actor_model'])
+  agent.value_model.load_state_dict(model_dicts['value_model'])
+  agent.value_model2.load_state_dict(model_dicts['value_model2'])
+  agent.world_optimizer.load_state_dict(model_dicts['world_optimizer'])
+  agent.actor_optimizer.load_state_dict(model_dicts['actor_optimizer'])
+  agent.value_optimizer.load_state_dict(model_dicts['value_optimizer'])
 
 # Testing only
 if args.test:
@@ -214,7 +216,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         break
 
     # Update and plot train reward metrics
-    metrics['steps'].append(t + metrics['steps'][-1])
+    metrics['env_steps'].append(t * args.action_repeat + metrics['env_steps'][-1])
     metrics['episodes'].append(episode)
     metrics['train_rewards'].append(total_reward)
     lineplot(metrics['episodes'][-len(metrics['train_rewards']):], metrics['train_rewards'], 'train_rewards',
@@ -270,8 +272,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # metrics['test_rewards'].append(total_rewards.tolist())
     metrics['test_rewards'].append(total_rewards)
     lineplot(metrics['test_episodes'], metrics['test_rewards'], 'test_rewards', results_dir)
-    lineplot(np.asarray(metrics['steps'])[np.asarray(metrics['test_episodes']) - 1], metrics['test_rewards'],
-             'test_rewards_steps', results_dir, xaxis='step')
+    lineplot(np.asarray(metrics['env_steps'])[np.asarray(metrics['test_episodes']) - 1], metrics['test_rewards'],
+             'test_rewards_steps', results_dir, xaxis='env_step')
     if not args.symbolic:
       episode_str = str(episode).zfill(len(str(args.episodes)))
       write_video(video_frames, 'test_episode_%s' % episode_str, results_dir)  # Lossy compression
@@ -289,7 +291,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # Close test environments
     test_envs.close()
 
-  print("episodes: {}, total_steps: {}, train_reward: {} ".format(metrics['episodes'][-1], metrics['steps'][-1], metrics['train_rewards'][-1]))
+  print("episodes: {}, total_env_steps: {}, train_reward: {} ".format(metrics['episodes'][-1], metrics['env_steps'][-1], metrics['train_rewards'][-1]))
   wandb.log({'episodes': metrics['episodes'][-1],
              'train_reward': metrics['train_rewards'][-1]})
 
