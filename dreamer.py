@@ -9,7 +9,6 @@ from env import CONTROL_SUITE_ENVS, Env, GYM_ENVS, EnvBatcher
 from agent import Dreamer
 from memory import ExperienceReplay
 from utils import lineplot, write_video
-import wandb
 
 # Hyperparameters
 parser = argparse.ArgumentParser(description='Dreamer')
@@ -59,8 +58,6 @@ parser.add_argument('--pcont', action='store_true', help="use the pcont to predi
 parser.add_argument('--with_logprob', action='store_true', help='use the entropy regularization')
 args = parser.parse_args()
 
-wandb.init(project="dreamer")
-wandb.config.update(args)
 
 print(' ' * 26 + 'Options')
 for k, v in vars(args).items():
@@ -292,8 +289,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     test_envs.close()
 
   print("episodes: {}, total_env_steps: {}, train_reward: {} ".format(metrics['episodes'][-1], metrics['env_steps'][-1], metrics['train_rewards'][-1]))
-  wandb.log({'episodes': metrics['episodes'][-1],
-             'train_reward': metrics['train_rewards'][-1]})
 
   # Checkpoint models
   if episode % args.checkpoint_interval == 0:

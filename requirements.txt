@@ -1,5 +1,0 @@
-gym
-opencv-python
-plotly
-torch
-tqdm

@@ -7,17 +7,12 @@ This is a Pytorch implementation of paper: [Dreamer to control: Learning Behavio
 
 Requirements
 ------------
-
-- Python 3
-- [DeepMind Control Suite](https://github.com/deepmind/dm_control)  
-- [Gym](https://gym.openai.com/)
-- [OpenCV Python](https://pypi.python.org/pypi/opencv-python)
-- [Plotly](https://plot.ly/)
-- [PyTorch >= v1.5.0](http://pytorch.org/)
+- Install `dm_control` and MuJoCo: following [DeepMind Control Suite and MuJoCo](https://github.com/deepmind/dm_control)  
+- Run `conda env create -f environment.yml` to install dependencies.
 
 To train the model:
 ------------
-`python3 main.py --env [env-name]` 
+`python3 dreamer.py --env [env-name]` 
 
 More optional environments are listed in `env.py` . The code is only tested on dm_control suite. If you have any question, feel free to post issues.
 
