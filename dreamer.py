@@ -85,12 +85,16 @@ summary_name = results_dir + "/{}_{}_log"
 # Initialise training environment and experience replay memory
 env = Env(args.env, args.symbolic, args.seed, args.max_episode_length, args.action_repeat, args.bit_depth)
 
+args.observation_size, args.action_size, args.discrete = env.observation_size, env.action_size, env.discrete
+
 args.observation_size, args.action_size = env.observation_size, env.action_size
+args.discrete, args.actions_n = env.discrete, env.actions_n
 
 # Initialise agent
 agent = Dreamer(args)
 
-D = ExperienceReplay(args.experience_size, args.symbolic, env.observation_size, env.action_size, args.bit_depth,
+D = ExperienceReplay(args.experience_size, args.symbolic, env.observation_size,
+                     env.action_size, args.bit_depth,
                      args.device)
 
 # Initialise dataset D with S random seed episodes

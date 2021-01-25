@@ -81,11 +81,12 @@ class Dreamer():
             args.cnn_act).to(device=args.device)
 
     self.actor_model = ActorModel(
-            args.action_size,
+            args.action_size if not args.discrete else args.actions_n,
             args.belief_size,
             args.state_size,
             args.hidden_size,
-            activation_function=args.dense_act).to(device=args.device)
+            activation_function=args.dense_act,
+            discrete=args.discrete).to(device=args.device)
 
     self.value_model = ValueModel(
             args.belief_size,
@@ -331,12 +332,21 @@ class Dreamer():
 
     return belief, posterior_state
 
+  def add_noise(self, action):
+    if self.args.discrete:
+      # TODO: decay exploration amount
+      return torch.where(torch.rand(action.size(0)) < self.args.expl_amount,
+                         torch.randint(0, self.args.actions_n, action.size(), dtype=action.dtype),
+                         action)
+    else:
+      action = Normal(action, self.args.expl_amount).rsample()
+      return torch.clamp(action, -1, 1)
+
   def select_action(self, state, deterministic=False):
     # get action with the inputs get from fn: infer_state; return a numpy with shape [batch, act_size]
     belief, posterior_state = state
     action, _ = self.actor_model(belief, posterior_state, deterministic=deterministic, with_logprob=False)
 
     if not deterministic and not self.args.with_logprob: ## add exploration noise
-      action = Normal(action, self.args.expl_amount).rsample()
-      action = torch.clamp(action, -1, 1)
+      action = self.add_noise(action)
     return action  # tensor

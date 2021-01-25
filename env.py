@@ -80,6 +80,10 @@ class ControlSuiteEnv():
   def action_size(self):
     return self._env.action_spec().shape[0]
 
+  @property
+  def discrete(self):
+    return False
+
   # Sample an action randomly from a uniform distribution over all valid actions
   def sample_random_action(self):
     spec = self._env.action_spec()
@@ -134,9 +138,17 @@ class GymEnv():
   @property
   def action_size(self):
     if hasattr(self._env.action_space, 'n'):
-      return self._env.action_space.n
+      return 1
     else:
       return self._env.action_space.shape[0]
+
+  @property
+  def discrete(self):
+    return hasattr(self._env.action_space, 'n')
+
+  @property
+  def actions_n(self):
+    return self._env.action_space.n if self.discrete else None
 
   # Sample an action randomly from a uniform distribution over all valid actions
   def sample_random_action(self):

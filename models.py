@@ -323,7 +323,6 @@ class OneHotDist:
     def __init__(self, logits=None, probs=None):
         self._dist = torch.distributions.Categorical(logits=logits, probs=probs)
         self._num_classes = logits.size(-1) # TODO: DIFF
-        self._dtype = torch.int # TODO: fixed for now
 
     @property
     def name(self):
@@ -342,11 +341,10 @@ class OneHotDist:
     def mode(self):
         return self._dist.probs.argmax(-1) # TODO: mode doesn't exist in torch
 
-    def rsample(self, amount=None):
+    def rsample(self):
         # Does gym (or whatever environment engine) expect one-hot encoded actions?
-        amount = [amount] if amount else []
-        samples = self._dist.sample(*amount)
+        samples = self._dist.sample().type(torch.float32)
         #samples = self._one_hot(samples)
-        probs = self._dist.probs[samples]
-        samples += (probs - probs.detach()).type(self._dtype)
-        return samples
+        probs = self._dist.log_prob(samples)
+        samples += (probs - probs.detach())
+        return samples.unsqueeze(-1)
