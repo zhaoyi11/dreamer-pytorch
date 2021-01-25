@@ -1,4 +1,4 @@
-name: dreamer
+name: dreamer-pyt
 channels:
   - pytorch
 dependencies:
