@@ -94,7 +94,9 @@ D = ExperienceReplay(args.experience_size, args.symbolic, env.observation_size, 
                      args.device)
 
 # Initialise dataset D with S random seed episodes
-for s in range(1, args.seed_episodes + 1):
+s = 1
+while s < args.seed_episodes + 1 or len(D) < args.chunk_size:
+  s += 1
   observation, done, t = env.reset(), False, 0
   while not done:
     action = env.sample_random_action()

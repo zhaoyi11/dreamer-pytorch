@@ -17,6 +17,9 @@ class ExperienceReplay():
     self.steps, self.episodes = 0, 0  # Tracks how much experience has been used in total
     self.bit_depth = bit_depth
 
+  def __len__(self):
+    return self.size if self.full else self.idx
+
   def append(self, observation, action, reward, done):
     if self.symbolic_env:
       self.observations[self.idx] = observation.numpy()
