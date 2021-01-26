@@ -81,6 +81,10 @@ class ControlSuiteEnv():
     return self._env.action_spec().shape[0]
 
   @property
+  def actions_n(self):
+    return None
+
+  @property
   def discrete(self):
     return False
 
