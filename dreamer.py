@@ -43,6 +43,8 @@ parser.add_argument('--adam-epsilon', type=float, default=1e-7, metavar='ε', he
 # Note that original has a linear learning rate decay, but it seems unlikely that this makes a significant difference
 parser.add_argument('--grad-clip-norm', type=float, default=100.0, metavar='C', help='Gradient clipping norm')
 parser.add_argument('--expl_amount', type=float, default=0.3, help='exploration noise')
+parser.add_argument('--expl_min', type=float, default=0.1, help='Minimum exploration noise (when decaying).')
+parser.add_argument('--expl_decay', type=float, default=100000, help='Exploration noise decay parameter.')
 parser.add_argument('--planning-horizon', type=int, default=15, metavar='H', help='Planning horizon distance')
 parser.add_argument('--discount', type=float, default=0.99, metavar='H', help='Planning horizon distance')
 parser.add_argument('--disclam', type=float, default=0.95, metavar='H', help='discount rate to compute return')

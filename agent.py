@@ -118,6 +118,8 @@ class Dreamer():
     self.actor_optimizer = optim.Adam(self.actor_model.parameters(), lr=args.actor_lr)
     self.value_optimizer = optim.Adam(list(self.value_model.parameters()), lr=args.value_lr)
 
+    self._update_steps = 0
+
     # setup the free_nat
     self.free_nats = torch.full((1, ), args.free_nats, dtype=torch.float32, device=args.device)  # Allowed deviation in KL divergence
 
@@ -308,6 +310,7 @@ class Dreamer():
       nn.utils.clip_grad_norm_(self.value_model.parameters(), self.args.grad_clip_norm, norm_type=2)
       self.value_optimizer.step()
 
+      self._update_steps += 1
       loss_info.append([observation_loss.item(), reward_loss.item(), kl_loss.item(), pcont_loss.item() if self.args.pcont else 0, actor_loss.item(), critic_loss.item()])
 
     # finally, update target value function every #gradient_steps
@@ -334,8 +337,11 @@ class Dreamer():
 
   def add_noise(self, action):
     if self.args.discrete:
-      # TODO: decay exploration amount
-      return torch.where(torch.rand(action.size(0), device=action.device) < self.args.expl_amount,
+      amount = self.args.expl_amount
+      if self.args.expl_decay:
+        amount *= 0.5 ** (self._update_steps / self.args.expl_decay)
+      amount = max(self.args.expl_min, amount)
+      return torch.where(torch.rand(action.size(0), device=action.device) < amount,
                          torch.randint(0, self.args.actions_n, action.size(), dtype=action.dtype, device=action.device),
                          action)
     else:
