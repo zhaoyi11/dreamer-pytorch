@@ -110,6 +110,8 @@ class GymEnv():
       return _images_to_observation(self._env.render(mode='rgb_array'), self.bit_depth)
   
   def step(self, action):
+    if self.discrete:
+      action = action.squeeze().type(torch.int)
     action = action.detach().numpy()
     reward = 0
     for k in range(self.action_repeat):
