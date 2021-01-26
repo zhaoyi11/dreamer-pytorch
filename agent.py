@@ -335,8 +335,8 @@ class Dreamer():
   def add_noise(self, action):
     if self.args.discrete:
       # TODO: decay exploration amount
-      return torch.where(torch.rand(action.size(0)) < self.args.expl_amount,
-                         torch.randint(0, self.args.actions_n, action.size(), dtype=action.dtype),
+      return torch.where(torch.rand(action.size(0), device=action.device) < self.args.expl_amount,
+                         torch.randint(0, self.args.actions_n, action.size(), dtype=action.dtype, device=action.device),
                          action)
     else:
       action = Normal(action, self.args.expl_amount).rsample()
