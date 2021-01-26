@@ -335,11 +335,13 @@ class OneHotDist:
         indices = torch.argmax(events, axis=-1)
         return self._dist.log_prob(indices)
 
+    @property
     def mean(self):
-        return self._dist.probs
+        return self.mode # self._dist.probs
 
+    @property
     def mode(self):
-        return self._dist.probs.argmax(-1) # TODO: mode doesn't exist in torch
+        return self._dist.probs.argmax(-1).type(torch.float32).unsqueeze(-1) # TODO: mode doesn't exist in torch
 
     def rsample(self):
         # Does gym (or whatever environment engine) expect one-hot encoded actions?

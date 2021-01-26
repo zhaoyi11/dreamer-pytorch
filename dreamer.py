@@ -77,7 +77,7 @@ if torch.cuda.is_available() and not args.disable_cuda:
 else:
   args.device = torch.device('cpu')
 
-metrics = {'env_steps': [], 'episodes': [], 'train_rewards': [], 'test_episodes': [], 'test_rewards': [],
+metrics = {'env_steps': [], 'env_steps_test': [], 'episodes': [], 'train_rewards': [], 'test_episodes': [], 'test_rewards': [],
            'observation_loss': [], 'reward_loss': [], 'kl_loss': [], 'pcont_loss': [], 'actor_loss': [], 'value_loss': []}
 
 summary_name = results_dir + "/{}_{}_log"
@@ -122,7 +122,7 @@ if args.models is not '' and os.path.exists(args.models):
   agent.encoder.load_state_dict(model_dicts['encoder'])
   agent.actor_model.load_state_dict(model_dicts['actor_model'])
   agent.value_model.load_state_dict(model_dicts['value_model'])
-  agent.value_model2.load_state_dict(model_dicts['value_model2'])
+  # agent.value_model2.load_state_dict(model_dicts['value_model2'])
   agent.world_optimizer.load_state_dict(model_dicts['world_optimizer'])
   agent.actor_optimizer.load_state_dict(model_dicts['actor_optimizer'])
   agent.value_optimizer.load_state_dict(model_dicts['value_optimizer'])
@@ -136,7 +136,7 @@ if args.test:
   agent.encoder.eval()
   agent.actor_model.eval()
   agent.value_model.eval()
-  agent.value_model2.eval()
+  # agent.value_model2.eval()
 
   with torch.no_grad():
     total_reward = 0
@@ -234,7 +234,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     agent.encoder.eval()
     agent.actor_model.eval()
     agent.value_model.eval()
-    agent.value_model2.eval()
+    # agent.value_model2.eval()
 
     # Initialise parallelised test environments
     test_envs = EnvBatcher(
@@ -256,8 +256,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         belief, posterior_state = agent.infer_state(observation.to(device=args.device), action, belief, posterior_state)
         action = agent.select_action((belief, posterior_state), deterministic=True)
         # interact with env
-        next_observation, reward, done = test_envs.step(action.cpu() if isinstance(test_envs, EnvBatcher) else action[
-          0].cpu())  # Perform environment step (action repeats handled internally)
+        next_observation, reward, done = test_envs.step(
+          action.cpu() if isinstance(test_envs, EnvBatcher) else action[0].cpu())  # Perform environment step (action repeats handled internally)
         total_rewards += reward.numpy()
 
         if not args.symbolic:  # Collect real vs. predicted frames for video
@@ -272,10 +272,11 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
 
     # Update and plot reward metrics (and write video if applicable) and save metrics
     metrics['test_episodes'].append(episode)
+    metrics['env_steps_test'].append(metrics['env_steps'][-1])
     # metrics['test_rewards'].append(total_rewards.tolist())
     metrics['test_rewards'].append(total_rewards)
     lineplot(metrics['test_episodes'], metrics['test_rewards'], 'test_rewards', results_dir)
-    lineplot(np.asarray(metrics['env_steps'])[np.asarray(metrics['test_episodes']) - 1], metrics['test_rewards'],
+    lineplot(np.asarray(metrics['env_steps_test']), metrics['test_rewards'],
              'test_rewards_steps', results_dir, xaxis='env_step')
     if not args.symbolic:
       episode_str = str(episode).zfill(len(str(args.episodes)))
@@ -290,7 +291,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     agent.encoder.train()
     agent.actor_model.train()
     agent.value_model.train()
-    agent.value_model2.train()
+    # agent.value_model2.train()
     # Close test environments
     test_envs.close()
 
@@ -304,7 +305,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 'encoder': agent.encoder.state_dict(),
                 'actor_model': agent.actor_model.state_dict(),
                 'value_model1': agent.value_model.state_dict(),
-                'value_model2': agent.value_model.state_dict(),
+                # 'value_model2': agent.value_model.state_dict(),
                 'world_optimizer': agent.world_optimizer.state_dict(),
                 'actor_optimizer': agent.actor_optimizer.state_dict(),
                 'value_optimizer': agent.value_optimizer.state_dict()
