@@ -60,7 +60,7 @@ parser.add_argument('--render', action='store_true', help='Render environment')
 parser.add_argument('--with_logprob', action='store_true', help='use the entropy regularization')
 args = parser.parse_args()
 if args.expl_decay_steps:
-  args.expl_decay = float(args.expl_decay_steps * np.log(2) / (np.log(args.expl_min) - np.log(args.expl_amount)))
+  args.expl_decay = -float(args.expl_decay_steps * np.log(2) / (np.log(args.expl_min) - np.log(args.expl_amount)))
 
 print(' ' * 26 + 'Options')
 for k, v in vars(args).items():
