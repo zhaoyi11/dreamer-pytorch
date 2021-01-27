@@ -35,6 +35,7 @@ parser.add_argument('--free-nats', type=float, default=3, metavar='F', help='Fre
 parser.add_argument('--bit-depth', type=int, default=5, metavar='B', help='Image bit depth (quantisation)')
 parser.add_argument('--reward_scale', type=float, default=5.0, help='coefficiency term of reward loss')
 parser.add_argument('--pcont_scale', type=float, default=5.0, help='coefficiency term of pcont loss')
+parser.add_argument('--pcont', action='store_true', help="use the pcont to predict the continuity")
 parser.add_argument('--world_lr', type=float, default=6e-4, metavar='α', help='Learning rate') 
 parser.add_argument('--actor_lr', type=float, default=8e-5, metavar='α', help='Learning rate') 
 parser.add_argument('--value_lr', type=float, default=8e-5, metavar='α', help='Learning rate') 
@@ -56,7 +57,6 @@ parser.add_argument('--checkpoint-experience', action='store_true', help='Checkp
 parser.add_argument('--models', type=str, default='', metavar='M', help='Load model checkpoint')
 parser.add_argument('--experience-replay', type=str, default='', metavar='ER', help='Load experience replay')
 parser.add_argument('--render', action='store_true', help='Render environment')
-parser.add_argument('--pcont', action='store_true', help="use the pcont to predict the continuity")
 parser.add_argument('--with_logprob', action='store_true', help='use the entropy regularization')
 args = parser.parse_args()
 

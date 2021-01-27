@@ -164,7 +164,7 @@ class Dreamer():
         self.free_nats).mean(dim=(0, 1))
 
     if self.args.pcont:
-      pcont_loss = F.binary_cross_entropy(bottle(self.pcont_model, (beliefs, posterior_states)), nonterminals)
+      pcont_loss = F.binary_cross_entropy(bottle(self.pcont_model, (beliefs, posterior_states)), nonterminals.squeeze())
 
     return observation_loss, self.args.reward_scale * reward_loss, kl_loss, (self.args.pcont_scale * pcont_loss if self.args.pcont else 0)
 
@@ -291,6 +291,8 @@ class Dreamer():
 
       self.actor_optimizer.zero_grad()
       actor_loss.backward()
+     # from utils import plot_grad_flow
+     # plot_grad_flow(self.actor_model.named_parameters())
       nn.utils.clip_grad_norm_(self.actor_model.parameters(), self.args.grad_clip_norm, norm_type=2)
       self.actor_optimizer.step()
 
