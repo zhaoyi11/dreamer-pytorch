@@ -45,7 +45,7 @@ parser.add_argument('--adam-epsilon', type=float, default=1e-7, metavar='ε', he
 parser.add_argument('--grad-clip-norm', type=float, default=100.0, metavar='C', help='Gradient clipping norm')
 parser.add_argument('--expl_amount', type=float, default=0.3, help='exploration noise')
 parser.add_argument('--expl_min', type=float, default=0.1, help='Minimum exploration noise (when decaying).')
-parser.add_argument('--expl_decay', type=float, default=100000, help='Exploration noise decay parameter.')
+parser.add_argument('--expl_decay_steps', type=int, default=200000, help='Exploration noise decay parameter.')
 parser.add_argument('--planning-horizon', type=int, default=15, metavar='H', help='Planning horizon distance')
 parser.add_argument('--discount', type=float, default=0.99, metavar='H', help='Planning horizon distance')
 parser.add_argument('--disclam', type=float, default=0.95, metavar='H', help='discount rate to compute return')
@@ -59,7 +59,8 @@ parser.add_argument('--experience-replay', type=str, default='', metavar='ER', h
 parser.add_argument('--render', action='store_true', help='Render environment')
 parser.add_argument('--with_logprob', action='store_true', help='use the entropy regularization')
 args = parser.parse_args()
-
+if args.expl_decay_steps:
+  args.expl_decay = float(args.expl_decay_steps * np.log(2) / (np.log(args.expl_min) - np.log(args.expl_amount)))
 
 print(' ' * 26 + 'Options')
 for k, v in vars(args).items():

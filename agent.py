@@ -340,7 +340,7 @@ class Dreamer():
   def add_noise(self, action):
     if self.args.discrete:
       amount = self.args.expl_amount
-      if self.args.expl_decay:
+      if self.args.expl_decay_steps:
         amount *= 0.5 ** (self._update_steps / self.args.expl_decay)
       amount = max(self.args.expl_min, amount)
       return torch.where(torch.rand(action.size(0), device=action.device) < amount,
