@@ -117,14 +117,15 @@ while s < args.seed_episodes + 1 or len(D) < args.chunk_size:
 
 print("--- Finish random data collection  --- ")
 
-if args.models is not '' and os.path.exists(args.models):
+if args.models is not '' :
+  print('LOADING MODEL FROM PATH')
   model_dicts = torch.load(args.models)
   agent.transition_model.load_state_dict(model_dicts['transition_model'])
   agent.observation_model.load_state_dict(model_dicts['observation_model'])
   agent.reward_model.load_state_dict(model_dicts['reward_model1'])
   agent.encoder.load_state_dict(model_dicts['encoder'])
   agent.actor_model.load_state_dict(model_dicts['actor_model'])
-  agent.value_model.load_state_dict(model_dicts['value_model'])
+  agent.value_model.load_state_dict(model_dicts['value_model1'])
   # agent.value_model2.load_state_dict(model_dicts['value_model2'])
   agent.world_optimizer.load_state_dict(model_dicts['world_optimizer'])
   agent.actor_optimizer.load_state_dict(model_dicts['actor_optimizer'])
