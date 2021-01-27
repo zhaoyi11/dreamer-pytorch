@@ -79,8 +79,9 @@ if torch.cuda.is_available() and not args.disable_cuda:
 else:
   args.device = torch.device('cpu')
 
-metrics = {'env_steps': [], 'env_steps_test': [], 'episodes': [], 'train_rewards': [], 'test_episodes': [], 'test_rewards': [],
-           'observation_loss': [], 'reward_loss': [], 'kl_loss': [], 'pcont_loss': [], 'actor_loss': [], 'value_loss': []}
+metrics = {'env_steps': [], 'env_steps_test': [], 'episodes': [], 'train_rewards': [], 'test_episodes': [],
+           'test_rewards': [], 'observation_loss': [], 'reward_loss': [], 'kl_loss': [], 'pcont_loss': [],
+           'actor_loss': [], 'value_loss': [], 'params': vars(args)}
 
 summary_name = results_dir + "/{}_{}_log"
 
