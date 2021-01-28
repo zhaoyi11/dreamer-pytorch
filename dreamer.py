@@ -81,9 +81,9 @@ if torch.cuda.is_available() and not args.disable_cuda:
 else:
   args.device = torch.device('cpu')
 
-metrics = {'env_steps': [], 'env_steps_test': [], 'episodes': [], 'train_rewards': [], 'test_episodes': [],
-           'test_rewards': [], 'observation_loss': [], 'reward_loss': [], 'kl_loss': [], 'pcont_loss': [],
-           'actor_loss': [], 'value_loss': [], 'params': vars(args)}
+metrics = {'env_steps': [], 'env_steps_test': [], 'episodes': [], 'train_rewards': [], 'exploration_amount': [],
+           'test_episodes': [], 'test_rewards': [], 'observation_loss': [], 'reward_loss': [], 'kl_loss': [],
+           'pcont_loss': [], 'actor_loss': [], 'value_loss': [], 'params': vars(args)}
 
 summary_name = results_dir + "/{}_{}_log"
 
@@ -231,7 +231,10 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     metrics['env_steps'].append(timesteps + metrics['env_steps'][-1])
     metrics['episodes'].append(episode)
     metrics['train_rewards'].append(total_reward)
+    metrics['exploration_amount'].append(agent.exploration_amount)
     lineplot(metrics['episodes'][-len(metrics['train_rewards']):], metrics['train_rewards'], 'train_rewards',
+             results_dir)
+    lineplot(metrics['episodes'][-len(metrics['exploration_amount']):], metrics['exploration_amount'], 'exploration_amount',
              results_dir)
 
   # Test model

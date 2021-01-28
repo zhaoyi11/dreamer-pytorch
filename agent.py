@@ -337,17 +337,22 @@ class Dreamer():
 
     return belief, posterior_state
 
-  def add_noise(self, action):
+  @property
+  def exploration_amount(self):
+    amount = self.args.expl_amount
     if self.args.discrete:
-      amount = self.args.expl_amount
       if self.args.expl_decay_steps:
         amount *= 0.5 ** (self._update_steps / self.args.expl_decay)
       amount = max(self.args.expl_min, amount)
-      return torch.where(torch.rand(action.size(0), device=action.device) < amount,
+    return amount
+
+  def add_noise(self, action):
+    if self.args.discrete:
+      return torch.where(torch.rand(action.size(0), device=action.device) < self.exploration_amount,
                          torch.randint(0, self.args.actions_n, action.size(), dtype=action.dtype, device=action.device),
                          action)
     else:
-      action = Normal(action, self.args.expl_amount).rsample()
+      action = Normal(action, self.exploration_amount).rsample()
       return torch.clamp(action, -1, 1)
 
   def select_action(self, state, deterministic=False):
