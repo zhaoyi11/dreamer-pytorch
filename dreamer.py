@@ -27,6 +27,7 @@ parser.add_argument('--belief-size', type=int, default=200, metavar='H', help='B
 parser.add_argument('--state-size', type=int, default=30, metavar='Z', help='State/latent size')
 parser.add_argument('--action-repeat', type=int, default=2, metavar='R', help='Action repeat')
 parser.add_argument('--episodes', type=int, default=1000, metavar='E', help='Total number of episodes')
+parser.add_argument('--total_steps', type=int, default=None, help='Total number of environment steps.') # If given with episodes, whatever comes first will break the loop
 parser.add_argument('--seed-episodes', type=int, default=5, metavar='S', help='Seed episodes')
 parser.add_argument('--collect-interval', type=int, default=100, metavar='C', help='Collect interval')
 parser.add_argument('--batch-size', type=int, default=50, metavar='B', help='Batch size')
@@ -174,6 +175,7 @@ if args.test:
   quit()
 
 # Training (and testing)
+total_timesteps = metrics['env_steps'][-1]
 for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total=args.episodes,
                     initial=metrics['episodes'][-1] + 1):
   data = D.sample(args.batch_size, args.chunk_size)
@@ -224,7 +226,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
         break
 
     # Update and plot train reward metrics
-    metrics['env_steps'].append(t * args.action_repeat + metrics['env_steps'][-1])
+    timesteps = t * args.action_repeat
+    total_timesteps += timesteps
+    metrics['env_steps'].append(timesteps + metrics['env_steps'][-1])
     metrics['episodes'].append(episode)
     metrics['train_rewards'].append(total_reward)
     lineplot(metrics['episodes'][-len(metrics['train_rewards']):], metrics['train_rewards'], 'train_rewards',
@@ -300,7 +304,8 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # Close test environments
     test_envs.close()
 
-  print("episodes: {}, total_env_steps: {}, train_reward: {} ".format(metrics['episodes'][-1], metrics['env_steps'][-1], metrics['train_rewards'][-1]))
+  print("episodes: {}, total_env_steps: {}, train_reward: {}, 100-average: {}".format(
+    metrics['episodes'][-1], metrics['env_steps'][-1], metrics['train_rewards'][-1], np.mean(metrics['train_rewards'][:min(len(metrics['train_rewards']), 100)])))
 
   # Checkpoint models
   if episode % args.checkpoint_interval == 0:
@@ -318,6 +323,9 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     if args.checkpoint_experience:
       torch.save(agent.D, os.path.join(results_dir,
                                  'experience.pth'))  # Warning: will fail with MemoryError with large memory sizes
+
+  if args.total_steps and total_timesteps >= args.total_steps:
+    break
 
 # Close training environment
 env.close()
