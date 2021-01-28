@@ -166,7 +166,7 @@ class Dreamer():
     if self.args.pcont:
       pcont_loss = F.binary_cross_entropy(bottle(self.pcont_model, (beliefs, posterior_states)), nonterminals.squeeze())
 
-    return observation_loss, self.args.reward_scale * reward_loss, kl_loss, (self.args.pcont_scale * pcont_loss if self.args.pcont else 0)
+    return observation_loss, self.args.reward_scale * reward_loss, self.args.beta * kl_loss, (self.args.pcont_scale * pcont_loss if self.args.pcont else 0)
 
   def _compute_loss_actor(self, imag_beliefs, imag_states, imag_ac_logps=None):
     # reward and value prediction of imagined trajectories
@@ -249,6 +249,11 @@ class Dreamer():
 
     return imag_beliefs, imag_states, imag_ac_logps if with_logprob else None
 
+  def _preprocess_rewards(self, rewards):
+    if self.args.discrete:
+      return torch.tanh(rewards)
+    return rewards
+
   def update_parameters(self, data, gradient_steps):
     loss_info = []  # used to record loss
     for s in tqdm(range(gradient_steps)):
@@ -269,7 +274,7 @@ class Dreamer():
       # update paras of world model
       world_model_loss = self._compute_loss_world(
         state=(beliefs, prior_states, prior_means, prior_std_devs, posterior_states, posterior_means, posterior_std_devs),
-        data=(observations, rewards, nonterminals)
+        data=(observations, self._preprocess_rewards(rewards), nonterminals)
       )
       observation_loss, reward_loss, kl_loss, pcont_loss = world_model_loss
       self. world_optimizer.zero_grad()
