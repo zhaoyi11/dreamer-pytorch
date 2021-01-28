@@ -59,6 +59,7 @@ parser.add_argument('--checkpoint-experience', action='store_true', help='Checkp
 parser.add_argument('--models', type=str, default='', metavar='M', help='Load model checkpoint')
 parser.add_argument('--experience-replay', type=str, default='', metavar='ER', help='Load experience replay')
 parser.add_argument('--render', action='store_true', help='Render environment')
+parser.add_argument('--random', action='store_true', help='For debugging: Do not train the agent (use a randomly initialized one).')
 parser.add_argument('--with_logprob', action='store_true', help='use the entropy regularization')
 args = parser.parse_args()
 if args.expl_decay_steps:
@@ -120,7 +121,7 @@ while s < args.seed_episodes + 1 or len(D) < args.chunk_size:
 
 print("--- Finish random data collection  --- ")
 
-if args.models is not '' :
+if args.models is not '':
   print('LOADING MODEL FROM PATH')
   model_dicts = torch.load(args.models)
   agent.transition_model.load_state_dict(model_dicts['transition_model'])
@@ -181,23 +182,24 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                     initial=metrics['episodes'][-1] + 1):
   data = D.sample(args.batch_size, args.chunk_size)
   # Model fitting
-  loss_info = agent.update_parameters(data, args.collect_interval)
+  if not args.random:
+    loss_info = agent.update_parameters(data, args.collect_interval)
 
-  # Update and plot loss metrics
-  losses = tuple(zip(*loss_info))
-  metrics['observation_loss'].append(losses[0])
-  metrics['reward_loss'].append(losses[1])
-  metrics['kl_loss'].append(losses[2])
-  metrics['pcont_loss'].append(losses[3])
-  metrics['actor_loss'].append(losses[4])
-  metrics['value_loss'].append(losses[5])
-  lineplot(metrics['episodes'][-len(metrics['observation_loss']):], metrics['observation_loss'], 'observation_loss',
-           results_dir)
-  lineplot(metrics['episodes'][-len(metrics['reward_loss']):], metrics['reward_loss'], 'reward_loss', results_dir)
-  lineplot(metrics['episodes'][-len(metrics['kl_loss']):], metrics['kl_loss'], 'kl_loss', results_dir)
-  lineplot(metrics['episodes'][-len(metrics['pcont_loss']):], metrics['pcont_loss'], 'pcont_loss', results_dir)
-  lineplot(metrics['episodes'][-len(metrics['actor_loss']):], metrics['actor_loss'], 'actor_loss', results_dir)
-  lineplot(metrics['episodes'][-len(metrics['value_loss']):], metrics['value_loss'], 'value_loss', results_dir)
+    # Update and plot loss metrics
+    losses = tuple(zip(*loss_info))
+    metrics['observation_loss'].append(losses[0])
+    metrics['reward_loss'].append(losses[1])
+    metrics['kl_loss'].append(losses[2])
+    metrics['pcont_loss'].append(losses[3])
+    metrics['actor_loss'].append(losses[4])
+    metrics['value_loss'].append(losses[5])
+    lineplot(metrics['episodes'][-len(metrics['observation_loss']):], metrics['observation_loss'], 'observation_loss',
+             results_dir)
+    lineplot(metrics['episodes'][-len(metrics['reward_loss']):], metrics['reward_loss'], 'reward_loss', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['kl_loss']):], metrics['kl_loss'], 'kl_loss', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['pcont_loss']):], metrics['pcont_loss'], 'pcont_loss', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['actor_loss']):], metrics['actor_loss'], 'actor_loss', results_dir)
+    lineplot(metrics['episodes'][-len(metrics['value_loss']):], metrics['value_loss'], 'value_loss', results_dir)
 
   # Data collection
   with torch.no_grad():
