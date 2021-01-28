@@ -319,7 +319,7 @@ class SampleDist:
 
 
 class OneHotDist:
-
+    # Modified from https://github.com/danijar/dreamer/blob/0256080fb213d9da6d7b706f5a9afc54ba686734/tools.py#L250
     def __init__(self, logits=None, probs=None):
         self._dist = torch.distributions.Categorical(logits=logits, probs=probs)
         self._num_classes = logits.size(-1)

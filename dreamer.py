@@ -121,7 +121,7 @@ while s < args.seed_episodes + 1 or len(D) < args.chunk_size:
 
 print("--- Finish random data collection  --- ")
 
-if args.models is not '':
+if args.models != '':
   print('LOADING MODEL FROM PATH')
   model_dicts = torch.load(args.models)
   agent.transition_model.load_state_dict(model_dicts['transition_model'])
