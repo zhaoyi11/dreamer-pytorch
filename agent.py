@@ -12,6 +12,7 @@ from tqdm import tqdm
 from memory import ExperienceReplay
 from models import bottle, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, ActorModel, PCONTModel
 
+
 def cal_returns(reward, value, bootstrap, pcont, lambda_):
   """
   Calculate the target value, following equation (5-6) in Dreamer
@@ -162,7 +163,6 @@ class Dreamer():
 
     if self.args.pcont:
       pcont_loss = F.binary_cross_entropy(bottle(self.pcont_model, (beliefs, posterior_states)), nonterminals)
-
     return observation_loss, self.args.reward_scale * reward_loss, kl_loss, (self.args.pcont_scale * pcont_loss if self.args.pcont else 0)
 
   def _compute_loss_actor(self, imag_beliefs, imag_states, imag_ac_logps=None):
