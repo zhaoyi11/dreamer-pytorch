@@ -9,7 +9,6 @@ from env import CONTROL_SUITE_ENVS, Env, GYM_ENVS, EnvBatcher
 from agent import Dreamer
 from memory import ExperienceReplay
 from utils import lineplot, write_video
-
 # Hyperparameters
 parser = argparse.ArgumentParser(description='Dreamer')
 
@@ -49,7 +48,7 @@ parser.add_argument('--disclam', type=float, default=0.95, metavar='H', help='di
 parser.add_argument('--test', action='store_true', help='Test only')
 parser.add_argument('--test-interval', type=int, default=25, metavar='I', help='Test interval (episodes)')
 parser.add_argument('--test-episodes', type=int, default=10, metavar='E', help='Number of test episodes')
-parser.add_argument('--checkpoint-interval', type=int, default=50, metavar='I', help='Checkpoint interval (episodes)')
+parser.add_argument('--checkpoint-interval', type=int, default=100, metavar='I', help='Checkpoint interval (episodes)')
 parser.add_argument('--checkpoint-experience', action='store_true', help='Checkpoint experience replay')
 parser.add_argument('--models', type=str, default='', metavar='M', help='Load model checkpoint')
 parser.add_argument('--experience-replay', type=str, default='', metavar='ER', help='Load experience replay')
@@ -108,7 +107,7 @@ for s in range(1, args.seed_episodes + 1):
 
 print("--- Finish random data collection  --- ")
 
-if args.models is not '' and os.path.exists(args.models):
+if args.models and os.path.exists(args.models):
   model_dicts = torch.load(args.models)
   agent.transition_model.load_state_dict(model_dicts['transition_model'])
   agent.observation_model.load_state_dict(model_dicts['observation_model'])
@@ -116,7 +115,6 @@ if args.models is not '' and os.path.exists(args.models):
   agent.encoder.load_state_dict(model_dicts['encoder'])
   agent.actor_model.load_state_dict(model_dicts['actor_model'])
   agent.value_model.load_state_dict(model_dicts['value_model'])
-  agent.value_model2.load_state_dict(model_dicts['value_model2'])
   agent.world_optimizer.load_state_dict(model_dicts['world_optimizer'])
   agent.actor_optimizer.load_state_dict(model_dicts['actor_optimizer'])
   agent.value_optimizer.load_state_dict(model_dicts['value_optimizer'])
@@ -130,7 +128,6 @@ if args.test:
   agent.encoder.eval()
   agent.actor_model.eval()
   agent.value_model.eval()
-  agent.value_model2.eval()
 
   with torch.no_grad():
     total_reward = 0
@@ -228,7 +225,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     agent.encoder.eval()
     agent.actor_model.eval()
     agent.value_model.eval()
-    agent.value_model2.eval()
 
     # Initialise parallelised test environments
     test_envs = EnvBatcher(
@@ -284,7 +280,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     agent.encoder.train()
     agent.actor_model.train()
     agent.value_model.train()
-    agent.value_model2.train()
     # Close test environments
     test_envs.close()
 
@@ -298,14 +293,13 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                 'encoder': agent.encoder.state_dict(),
                 'actor_model': agent.actor_model.state_dict(),
                 'value_model1': agent.value_model.state_dict(),
-                'value_model2': agent.value_model.state_dict(),
                 'world_optimizer': agent.world_optimizer.state_dict(),
                 'actor_optimizer': agent.actor_optimizer.state_dict(),
                 'value_optimizer': agent.value_optimizer.state_dict()
                 }, os.path.join(results_dir, 'models_%d.pth' % episode))
     if args.checkpoint_experience:
-      torch.save(agent.D, os.path.join(results_dir,
-                                 'experience.pth'))  # Warning: will fail with MemoryError with large memory sizes
+      torch.save(D, os.path.join(results_dir,
+                                 'experience_{}.pth'.format(args.env)))  # Warning: will fail with MemoryError with large memory sizes
 
 # Close training environment
 env.close()
