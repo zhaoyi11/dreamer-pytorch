@@ -2,6 +2,7 @@ import argparse
 import os
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.nn import functional as F
 from torchvision.utils import make_grid, save_image
 from tqdm import tqdm
@@ -9,6 +10,7 @@ from env import CONTROL_SUITE_ENVS, Env, GYM_ENVS, EnvBatcher
 from agent import Dreamer
 from memory import ExperienceReplay
 from utils import lineplot, write_video
+from models import bottle
 # Hyperparameters
 parser = argparse.ArgumentParser(description='Dreamer')
 
@@ -89,23 +91,12 @@ args.observation_size, args.action_size = env.observation_size, env.action_size
 # Initialise agent
 agent = Dreamer(args)
 
-D = ExperienceReplay(args.experience_size, args.symbolic, env.observation_size, env.action_size, args.bit_depth,
-                     args.device)
-
-# Initialise dataset D with S random seed episodes
-for s in range(1, args.seed_episodes + 1):
-  observation, done, t = env.reset(), False, 0
-  while not done:
-    action = env.sample_random_action()
-    next_observation, reward, done = env.step(action)
-    D.append(next_observation, action.cpu(), reward, done)  # here use the next_observation
-    observation = next_observation
-    t += 1
-  metrics['env_steps'].append(t * args.action_repeat + (0 if len(metrics['env_steps']) == 0 else metrics['env_steps'][-1]))
-  metrics['episodes'].append(s)
-  print("(random)episodes: {}, total_env_steps: {} ".format(metrics['episodes'][-1], metrics['env_steps'][-1]))
-
-print("--- Finish random data collection  --- ")
+if args.experience_replay and os.path.exists(args.experience_replay):
+  D = torch.load(args.experience_replay)
+  D.full = False
+  D.idx = int(0.1 * args.experience_size)
+else:
+  raise ValueError  
 
 if args.models and os.path.exists(args.models):
   model_dicts = torch.load(args.models)
@@ -159,62 +150,51 @@ if args.test:
   env.close()
   quit()
 
+# first train the world model
+for itr in range(10000):
+  data = D.sample(args.batch_size, args.chunk_size)
+  # get state and belief of samples
+  observations, actions, rewards, nonterminals = data
+
+  init_belief = torch.zeros(args.batch_size, args.belief_size, device=args.device)
+  init_state = torch.zeros(args.batch_size, args.state_size, device=args.device)
+
+  # Update belief/state using posterior from previous belief/state, previous action and current observation (over entire sequence at once)
+  beliefs, prior_states, prior_means, prior_std_devs, posterior_states, posterior_means, posterior_std_devs = agent.transition_model(
+    init_state,
+    actions,
+    init_belief,
+    bottle(agent.encoder, (observations, )),
+    nonterminals) 
+
+  # update paras of world model
+  world_model_loss = agent._compute_loss_world(
+    state=(beliefs, prior_states, prior_means, prior_std_devs, posterior_states, posterior_means, posterior_std_devs),
+    data=(observations, rewards, nonterminals)
+  )
+  observation_loss, reward_loss, kl_loss, pcont_loss = world_model_loss
+  agent.world_optimizer.zero_grad()
+  (observation_loss + reward_loss + kl_loss + pcont_loss).backward()
+  nn.utils.clip_grad_norm_(agent.world_param, agent.args.grad_clip_norm, norm_type=2)
+  agent.world_optimizer.step()
+
+  print("[World Model] Iteration: {i} obs_loss: {o}, reward_loss: {r}, kl_loss:{kl}, pcont_loss:{p}".format(i=itr, o=observation_loss, r=reward_loss, kl=kl_loss, p=pcont_loss))
 # Training (and testing)
-for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total=args.episodes,
-                    initial=metrics['episodes'][-1] + 1):
+# for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total=args.episodes,
+#                     initial=metrics['episodes'][-1] + 1):
+for episode in range(args.episodes):
   data = D.sample(args.batch_size, args.chunk_size)
   # Model fitting
-  loss_info = agent.update_parameters(data, args.collect_interval)
+  loss_info = agent.update_parameters(data, args.collect_interval) # update arg.collect_interval steps
 
   # Update and plot loss metrics
   losses = tuple(zip(*loss_info))
-  metrics['observation_loss'].append(losses[0])
-  metrics['reward_loss'].append(losses[1])
-  metrics['kl_loss'].append(losses[2])
-  metrics['pcont_loss'].append(losses[3])
-  metrics['actor_loss'].append(losses[4])
-  metrics['value_loss'].append(losses[5])
-  lineplot(metrics['episodes'][-len(metrics['observation_loss']):], metrics['observation_loss'], 'observation_loss',
-           results_dir)
-  lineplot(metrics['episodes'][-len(metrics['reward_loss']):], metrics['reward_loss'], 'reward_loss', results_dir)
-  lineplot(metrics['episodes'][-len(metrics['kl_loss']):], metrics['kl_loss'], 'kl_loss', results_dir)
-  lineplot(metrics['episodes'][-len(metrics['pcont_loss']):], metrics['pcont_loss'], 'pcont_loss', results_dir)
+
+  metrics['actor_loss'].append(losses[0])
+  metrics['value_loss'].append(losses[1])
+  print('[AE-Train] actor_loss:{actor_loss}, value_loss:{value_loss}'.format(actor_loss=sum(losses[0])/len(losses[0]), value_loss=sum(losses[1])/len(losses[1])))  
   lineplot(metrics['episodes'][-len(metrics['actor_loss']):], metrics['actor_loss'], 'actor_loss', results_dir)
   lineplot(metrics['episodes'][-len(metrics['value_loss']):], metrics['value_loss'], 'value_loss', results_dir)
-
-  # Data collection
-  with torch.no_grad():
-    observation, total_reward = env.reset(), 0
-    belief = torch.zeros(1, args.belief_size, device=args.device)
-    posterior_state = torch.zeros(1, args.state_size, device=args.device)
-    action = torch.zeros(1, env.action_size, device=args.device)
-
-    pbar = tqdm(range(args.max_episode_length // args.action_repeat))
-    for t in pbar:
-      # maintain belief and posterior_state
-      belief, posterior_state = agent.infer_state(observation.to(device=args.device), action, belief, posterior_state)
-      action = agent.select_action((belief, posterior_state), deterministic=False)
-
-      # interact with env
-      next_observation, reward, done = env.step(action.cpu() if isinstance(env, EnvBatcher) else action[0].cpu())  # Perform environment step (action repeats handled internally)
-
-      # agent.D.append(observation, action.cpu(), reward, done)
-      D.append(next_observation, action.cpu(), reward, done)
-      total_reward += reward
-      observation = next_observation
-
-      if args.render:
-        env.render()
-      if done:
-        pbar.close()
-        break
-
-    # Update and plot train reward metrics
-    metrics['env_steps'].append(t * args.action_repeat + metrics['env_steps'][-1])
-    metrics['episodes'].append(episode)
-    metrics['train_rewards'].append(total_reward)
-    lineplot(metrics['episodes'][-len(metrics['train_rewards']):], metrics['train_rewards'], 'train_rewards',
-             results_dir)
 
   # Test model
   if episode % args.test_interval == 0:
@@ -256,7 +236,6 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
                       nrow=5).numpy())  # Decentre
         observation = next_observation
         if done.sum().item() == args.test_episodes:
-          pbar.close()
           break
 
 
@@ -264,9 +243,10 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     metrics['test_episodes'].append(episode)
     # metrics['test_rewards'].append(total_rewards.tolist())
     metrics['test_rewards'].append(total_rewards)
-    lineplot(metrics['test_episodes'], metrics['test_rewards'], 'test_rewards', results_dir)
-    lineplot(np.asarray(metrics['env_steps'])[np.asarray(metrics['test_episodes']) - 1], metrics['test_rewards'],
-             'test_rewards_steps', results_dir, xaxis='env_step')
+    print('[AC-Test] Episodes:{e}, Test_reward:{r}'.format(e=episode, r=total_rewards))
+    # lineplot(metrics['test_episodes'], metrics['test_rewards'], 'test_rewards', results_dir)
+    # lineplot(np.asarray(metrics['env_steps'])[np.asarray(metrics['test_episodes']) - 1], metrics['test_rewards'],
+    #          'test_rewards_steps', results_dir, xaxis='env_step')
     if not args.symbolic:
       episode_str = str(episode).zfill(len(str(args.episodes)))
       write_video(video_frames, 'test_episode_%s' % episode_str, results_dir)  # Lossy compression
@@ -283,23 +263,23 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     # Close test environments
     test_envs.close()
 
-  print("episodes: {}, total_env_steps: {}, train_reward: {} ".format(metrics['episodes'][-1], metrics['env_steps'][-1], metrics['train_rewards'][-1]))
+  # print("episodes: {}, total_env_steps: {}, train_reward: {} ".format(metrics['episodes'][-1], metrics['env_steps'][-1], metrics['train_rewards'][-1]))
 
-  # Checkpoint models
-  if episode % args.checkpoint_interval == 0:
-    torch.save({'transition_model': agent.transition_model.state_dict(),
-                'observation_model': agent.observation_model.state_dict(),
-                'reward_model1': agent.reward_model.state_dict(),
-                'encoder': agent.encoder.state_dict(),
-                'actor_model': agent.actor_model.state_dict(),
-                'value_model1': agent.value_model.state_dict(),
-                'world_optimizer': agent.world_optimizer.state_dict(),
-                'actor_optimizer': agent.actor_optimizer.state_dict(),
-                'value_optimizer': agent.value_optimizer.state_dict()
-                }, os.path.join(results_dir, 'models_%d.pth' % episode))
-    if args.checkpoint_experience:
-      torch.save(D, os.path.join(results_dir,
-                                 'experience_{}.pth'.format(args.env)))  # Warning: will fail with MemoryError with large memory sizes
+  # # Checkpoint models
+  # if episode % args.checkpoint_interval == 0:
+  #   torch.save({'transition_model': agent.transition_model.state_dict(),
+  #               'observation_model': agent.observation_model.state_dict(),
+  #               'reward_model1': agent.reward_model.state_dict(),
+  #               'encoder': agent.encoder.state_dict(),
+  #               'actor_model': agent.actor_model.state_dict(),
+  #               'value_model1': agent.value_model.state_dict(),
+  #               'world_optimizer': agent.world_optimizer.state_dict(),
+  #               'actor_optimizer': agent.actor_optimizer.state_dict(),
+  #               'value_optimizer': agent.value_optimizer.state_dict()
+  #               }, os.path.join(results_dir, 'models_%d.pth' % episode))
+  #   if args.checkpoint_experience:
+  #     torch.save(D, os.path.join(results_dir,
+  #                                'experience_{}.pth'.format(args.env)))  # Warning: will fail with MemoryError with large memory sizes
 
 # Close training environment
 env.close()

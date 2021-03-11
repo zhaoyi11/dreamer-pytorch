@@ -248,7 +248,7 @@ class Dreamer():
 
   def update_parameters(self, data, gradient_steps):
     loss_info = []  # used to record loss
-    for s in tqdm(range(gradient_steps)):
+    for s in range(gradient_steps):
       # get state and belief of samples
       observations, actions, rewards, nonterminals = data
 
@@ -263,22 +263,22 @@ class Dreamer():
         bottle(self.encoder, (observations, )),
         nonterminals)  # TODO: 4
 
-      # update paras of world model
-      world_model_loss = self._compute_loss_world(
-        state=(beliefs, prior_states, prior_means, prior_std_devs, posterior_states, posterior_means, posterior_std_devs),
-        data=(observations, rewards, nonterminals)
-      )
-      observation_loss, reward_loss, kl_loss, pcont_loss = world_model_loss
-      self. world_optimizer.zero_grad()
-      (observation_loss + reward_loss + kl_loss + pcont_loss).backward()
-      nn.utils.clip_grad_norm_(self.world_param, self.args.grad_clip_norm, norm_type=2)
-      self.world_optimizer.step()
+      # # update paras of world model
+      # world_model_loss = self._compute_loss_world(
+      #   state=(beliefs, prior_states, prior_means, prior_std_devs, posterior_states, posterior_means, posterior_std_devs),
+      #   data=(observations, rewards, nonterminals)
+      # )
+      # observation_loss, reward_loss, kl_loss, pcont_loss = world_model_loss
+      # self. world_optimizer.zero_grad()
+      # (observation_loss + reward_loss + kl_loss + pcont_loss).backward()
+      # nn.utils.clip_grad_norm_(self.world_param, self.args.grad_clip_norm, norm_type=2)
+      # self.world_optimizer.step()
 
-      # freeze params to save memory
-      for p in self.world_param:
-        p.requires_grad = False
-      for p in self.value_model.parameters():
-        p.requires_grad = False
+      # # freeze params to save memory
+      # for p in self.world_param:
+      #   p.requires_grad = False
+      # for p in self.value_model.parameters():
+      #   p.requires_grad = False
 
       # latent imagination
       imag_beliefs, imag_states, imag_ac_logps = self._latent_imagination(beliefs, posterior_states, with_logprob=self.args.with_logprob)
@@ -307,7 +307,7 @@ class Dreamer():
       nn.utils.clip_grad_norm_(self.value_model.parameters(), self.args.grad_clip_norm, norm_type=2)
       self.value_optimizer.step()
 
-      loss_info.append([observation_loss.item(), reward_loss.item(), kl_loss.item(), pcont_loss.item() if self.args.pcont else 0, actor_loss.item(), critic_loss.item()])
+      loss_info.append([actor_loss.item(), critic_loss.item()])
 
     # finally, update target value function every #gradient_steps
     with torch.no_grad():
