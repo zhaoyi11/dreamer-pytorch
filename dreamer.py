@@ -94,7 +94,7 @@ agent = Dreamer(args)
 if args.experience_replay and os.path.exists(args.experience_replay):
   D = torch.load(args.experience_replay)
   D.full = False
-  D.idx = int(0.1 * args.experience_size)
+  D.idx = int(0.2 * D.idx)
 else:
   raise ValueError  
 
