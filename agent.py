@@ -208,7 +208,7 @@ class Dreamer():
     value_pred = bottle(self.value_model, (imag_beliefs, imag_states))[:-1]
 
     value_loss = F.mse_loss(value_pred, target_return, reduction="none").mean(dim=(0, 1))
-
+    print("Pred_value:", torch.mean(value_pred).item(), "Target:", torch.mean(target_return).item())
     return value_loss
 
   def _latent_imagination(self, beliefs, posterior_states, with_logprob=False):

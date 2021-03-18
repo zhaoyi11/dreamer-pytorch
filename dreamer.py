@@ -94,7 +94,7 @@ agent = Dreamer(args)
 if args.experience_replay and os.path.exists(args.experience_replay):
   D = torch.load(args.experience_replay)
   D.full = False
-  D.idx = int(0.1 * D.idx)
+  D.idx = int(0.2 * D.idx)
 else:
   raise ValueError  
 
@@ -192,7 +192,7 @@ for episode in range(args.episodes):
 
   metrics['actor_loss'].append(losses[0])
   metrics['value_loss'].append(losses[1])
-  print('[AE-Train] actor_loss:{actor_loss}, value_loss:{value_loss}'.format(actor_loss=sum(losses[0])/len(losses[0]), value_loss=sum(losses[1])/len(losses[1])))  
+  print('[AE-Train, {e}] actor_loss:{actor_loss}, value_loss:{value_loss}'.format(e=episode, actor_loss=sum(losses[0])/len(losses[0]), value_loss=sum(losses[1])/len(losses[1])))  
   lineplot(metrics['episodes'][-len(metrics['actor_loss']):], metrics['actor_loss'], 'actor_loss', results_dir)
   lineplot(metrics['episodes'][-len(metrics['value_loss']):], metrics['value_loss'], 'value_loss', results_dir)
 
