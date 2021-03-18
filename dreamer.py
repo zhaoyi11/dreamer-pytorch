@@ -151,7 +151,7 @@ if args.test:
   quit()
 
 # first train the world model
-for itr in range(10000):
+for itr in range(100):
   data = D.sample(args.batch_size, args.chunk_size)
   # get state and belief of samples
   observations, actions, rewards, nonterminals = data
