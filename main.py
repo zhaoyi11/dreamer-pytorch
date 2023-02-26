@@ -14,7 +14,7 @@ import wandb
 from pathlib import Path
 from dm_env import specs
 
-# from dreamer import Dreamer 
+from dreamer import Dreamer 
 from utils.env import make_env
 import utils.helper as helper
 from utils.video import VideoRecorder
@@ -48,10 +48,25 @@ class Workspace(object):
         
         self.setup()
 
-        # dreamer_kwargs = {
-            
-        # }
-        # self.agent = Dreamer(**dreamer_kwargs)
+        dreamer_kwargs = {
+            'modality': self.cfg.modality,
+            'deter_dim': self.cfg.deter_dim,
+            'stoc_dim': self.cfg.stoc_dim,
+            'mlp_dim': self.cfg.mlp_dim, 
+            'embedding_dim': self.cfg.embedding_dim,
+            'obs_shape': self.cfg.obs_shape, 
+            'action_dim': self.cfg.action_shape[0], 
+            'world_lr': self.cfg.world_lr,
+            'actor_lr': self.cfg.actor_lr, 
+            'value_lr': self.cfg.value_lr, 
+            'grad_clip_norm': self.cfg.grad_clip_norm,
+            'free_nats': self.cfg.free_nats,
+            'coef_pred': self.cfg.coef_pred, 
+            'coef_dyn': self.cfg.coef_dyn, 
+            'coef_rep': self.cfg.coef_rep,
+            'device': self.cfg.device, 
+        }
+        self.agent = Dreamer(**dreamer_kwargs)
 
         self.timer = helper.Timer()
 
@@ -159,12 +174,15 @@ class Workspace(object):
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
         self.replay_storage.add(time_step)
-        self.video_recorder.init(time_step.observation)
+        if self.video_recorder is not None:
+            self.video_recorder.init(time_step.observation)
         metrics = None
         while train_until_step(self.global_step):
-            if time_step.last():
+            if time_step.last(): # reset and logging after one trajectory
                 self._global_episode += 1
-                self.video_recorder.save(f'{self.global_frame}.mp4')
+                
+                if self.video_recorder is not None:
+                    self.video_recorder.save(f'{self.global_frame}.mp4')
                 # wait until all the metrics schema is populated
                 if metrics is not None:
                     # log stats
@@ -183,7 +201,8 @@ class Workspace(object):
                 # reset env
                 time_step = self.train_env.reset()
                 self.replay_storage.add(time_step)
-                self.video_recorder.init(time_step.observation)
+                if self.video_recorder is not None:
+                    self.video_recorder.init(time_step.observation)
                 # try to save snapshot
                 if self.cfg.save_snapshot:
                     self.save_snapshot()
@@ -198,7 +217,7 @@ class Workspace(object):
 
             # sample action
             with torch.no_grad(), helper.eval_mode(self.agent):
-                action = self.agent.act(time_step.observation,
+                action = self.agent.select_action(time_step.observation,
                                         self.global_step,
                                         eval_mode=False)
 
@@ -211,7 +230,8 @@ class Workspace(object):
             time_step = self.train_env.step(action)
             episode_reward += time_step.reward
             self.replay_storage.add(time_step)
-            self.video_recorder.record(time_step.observation)
+            if self.video_recorder is not None:
+                self.video_recorder.record(time_step.observation)
             episode_step += 1
             self._global_step += 1
 

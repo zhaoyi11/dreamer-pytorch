@@ -9,43 +9,46 @@ from torch.distributions.transformed_distribution import TransformedDistribution
 import numpy as np
 
 
-@dataclass
-class RSSMState():
-    def __init__(self,):
-        pass
+# @dataclass
+# class RSSMState():
+#     def __init__(self,):
+#         deter:
+#         stoc:
+#         stoc_mean:
+#         stoc_std:
+#         state:         
 
-    def detach(self,):
-        pass
+#     def detach(self,):
+#         pass
 
-    def sample(self,):
-        pass
+#     def sample(self,):
+#         pass
     
-    def flatten(self,):
-        "The returned shape is [B*N, x_dim]."
-        pass
+#     def flatten(self,):
+#         "The returned shape is [B*N, x_dim]."
+#         pass
     
-    
+
 
 
 class RSSM(nn.Module):
-    def __init__(self, deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim, act_fn='relu', min_std_dev=0.1):
+    def __init__(self, deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim, act_fn=nn.ELU, min_std_dev=0.1):
         super().__init__()
-        self.act_fn = getattr(F, act_fn)
         self.min_std_dev = min_std_dev
         
         self.fc_input = nn.Sequential(
-            nn.Linear(stoc_dim + action_dim, deter_dim), self.act_fn()
+            nn.Linear(stoc_dim + action_dim, deter_dim), act_fn()
         )
         
         self.rnn = nn.GRUCell(deter_dim, deter_dim)
 
         self.fc_prior = nn.Sequential(
-            nn.Linear(deter_dim, mlp_dim), self.act_fn(),
+            nn.Linear(deter_dim, mlp_dim), act_fn(),
             nn.Linear(mlp_dim, 2 * stoc_dim)
         )
 
         self.fc_posterior = nn.Sequential(
-            nn.Linear(deter_dim + embedding_dim, mlp_dim), self.act_fn(),
+            nn.Linear(deter_dim + embedding_dim, mlp_dim), act_fn(),
             nn.Linear(mlp_dim, 2 * stoc_dim)
         )
 
@@ -95,9 +98,7 @@ class RSSM(nn.Module):
     
     def _stack_rssmState(self, states):
         pass
-    
-    def init_rssmState(self, batch_size):
-        return RSSMState()
+
 
 def mlp(in_dim, mlp_dims: List[int], out_dim, act_fn=nn.ELU, out_act=nn.Identity):
     """Returns an MLP."""
@@ -128,7 +129,7 @@ class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
 
-def encoder(cfg):
+def encoder():
     """Returns a TOLD encoder."""
     def _get_out_shape(in_shape, layers):
         """Utility function. Returns the output shape of a network for a given input shape."""
@@ -151,12 +152,12 @@ def encoder(cfg):
 
 
 class Actor(nn.Module):
-    def __init__(self, latent_dim, mlp_dims, action_shape):
+    def __init__(self, deter_dim, stoc_dim, mlp_dims, action_dim):
         super().__init__()
-        self.trunk = nn.Sequential(nn.Linear(latent_dim, mlp_dims[0]),
+        self.trunk = nn.Sequential(nn.Linear(deter_dim+stoc_dim, mlp_dims[0]),
                             nn.LayerNorm(mlp_dims[0]), nn.Tanh())
-        self._actor = net.mlp(mlp_dims[0], mlp_dims[1:], action_shape[0])
-        self.apply(net.orthogonal_init) 
+        self._actor = mlp(mlp_dims[0], mlp_dims[1:], action_dim)
+        self.apply(orthogonal_init) 
 
     def forward(self, obs, std):
         feature = self.trunk(obs)
@@ -166,22 +167,21 @@ class Actor(nn.Module):
         return h.TruncatedNormal(mu, std)
     
 
-class Critic(nn.Module):
-    def __init__(self, latent_dim, mlp_dims, action_shape):
+class Value(nn.Module):
+    def __init__(self, deter_dim, stoc_dim, mlp_dims):
         super().__init__()
-        self.trunk = nn.Sequential(nn.Linear(latent_dim+action_shape[0], mlp_dims[0]),
+        self.trunk = nn.Sequential(nn.Linear(deter_dim+stoc_dim, mlp_dims[0]),
                             nn.LayerNorm(mlp_dims[0]), nn.Tanh())
-        self._critic1 = net.mlp(mlp_dims[0], mlp_dims[1:], 1)
-        self._critic2 = net.mlp(mlp_dims[0], mlp_dims[1:], 1)
-        self.apply(net.orthogonal_init)
+        self._v1 = mlp(mlp_dims[0], mlp_dims[1:], 1)
+        self._v2 = mlp(mlp_dims[0], mlp_dims[1:], 1)
+        self.apply(orthogonal_init)
 
-    def forward(self, z, a):
-        feature = torch.cat([z, a], dim=-1)
-        feature = self.trunk(feature)
-        return self._critic1(feature), self._critic2(feature)
+    def forward(self, z):
+        feature = self.trunk(z)
+        return self._v1(feature), self._v2(feature)
 
 
-class Encoder(nn.Module):
+class CNNEncoder(nn.Module):
     def __init__(self, obs_shape, mlp_dims, latent_dim):
         super().__init__()
         self._encoder = net.mlp(obs_shape[0], mlp_dims, latent_dim,)
@@ -192,7 +192,7 @@ class Encoder(nn.Module):
         return out
 
 
-class Decoder(nn.Module):
+class CNNDecoder(nn.Module):
     pass
 
 

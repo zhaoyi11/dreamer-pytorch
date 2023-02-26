@@ -27,17 +27,32 @@ def count_vars(module):
 
 
 class Dreamer(object):
-    def __init__(self,device):
+    def __init__(self,
+                modality,
+                deter_dim, stoc_dim, mlp_dim, embedding_dim,
+                obs_shape, action_dim, 
+                world_lr, actor_lr, value_lr, grad_clip_norm,
+                free_nats,
+                coef_pred, coef_dyn, coef_rep,
+                device):
         self.device = torch.device(device)
 
         # models
-        self.encoder = nets.encoder().to(self.device)
-        self.decoder = nets.decoder().to(self.device)
-        self.rssm = nets.RSSM().to(self.device)
-        self.reward_fn = nets.mlp().to(self.device)
-        self.value = nets.Value().to(self.device)
-        self.value_tar = nets.ValueTar().to(self.device)
-        self.actor = nets.Actor().to(self.device)
+        if modality == 'pixels':
+            pass
+            # self.encoder = nets.CNNEncoder().to(self.device)
+            # self.decoder = nets.CNNDecoder().to(self.device)
+        else:
+            self.encoder = nets.mlp(obs_shape[0], [mlp_dim, mlp_dim], embedding_dim).to(self.device)
+            self.decoder = nets.mlp(obs_shape[0], [mlp_dim, mlp_dim], embedding_dim).to(self.device)
+
+        self.rssm = nets.RSSM(deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim).to(self.device)
+        self.reward_fn = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim], 1).to(self.device)
+
+        self.value = nets.Value(deter_dim, stoc_dim, mlp_dims=[mlp_dim, mlp_dim]).to(self.device)
+        self.value_tar = nets.Value(deter_dim, stoc_dim, mlp_dims=[mlp_dim, mlp_dim]).to(self.device)
+
+        self.actor = nets.Actor(deter_dim, stoc_dim, [mlp_dim, mlp_dim], action_dim).to(self.device)
 
         # init optimizers
         self.world_param = chain(self.rssm.parameters(), self.encoder.parameters(),
@@ -49,6 +64,7 @@ class Dreamer(object):
         # free nats
         self.free_nats = torch.full((1,), free_nats, dtype=torch.float32, device=self.device)
 
+        self.coef_pred, self.coef_dyn, self.coef_rep = coef_pred, coef_dyn, coef_rep
 
     def infer_state(self, rssmState, action, observation):
         prior_rssmState, posterior_rssmState = self.rssm.onestep_observe(self.encoder(observation, rssmState, action))
@@ -135,7 +151,7 @@ class Dreamer(object):
 
 
     @torch.no_grad()
-    def select_action(self, obs, eval_mode=False):
+    def select_action(self, obs, step, eval_mode=False):
         pass
 
     def save(self, fp):

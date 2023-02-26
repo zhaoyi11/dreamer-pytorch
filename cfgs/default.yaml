@@ -32,8 +32,8 @@ nstep: 1
 
 embedding_dim: 1024
 mlp_dim: 300
-belief_dim: 200
-state_dim: 50
+deter_dim: 200
+stoc_dim: 50
 
 # replay buffer
 replay_buffer_size: 1e6
@@ -44,6 +44,10 @@ mlp_active_fn: elu
 
 expl_noise: 0.3
 free_nats: 3 # or 1 TODO:
+
+coef_pred: 1
+coef_dyn: 0.5
+coef_rep: 0.1
 
 world_lr: 6e-4
 actor_lr: 8e-5
