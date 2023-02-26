@@ -1,0 +1,6 @@
+# @package _global_
+defaults:
+  - _self_
+  - hard
+
+env_name: dog-stand

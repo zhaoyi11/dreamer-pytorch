@@ -1,0 +1,70 @@
+defaults:
+    - _self_
+    - input: proprio
+    - task: walker_walk
+    # disable hydra logging
+    - override hydra/hydra_logging: disabled  
+    - override hydra/job_logging: disabled  
+
+seed: -1 # generate random seed if seed == -1 (by defalut)
+
+env_name: ${env_name}
+algo_name: tcrl
+exp_name: default
+modality: 
+# training
+device: ???
+obs_shape: ???
+action_shape: ???
+train_step: ???
+action_repeat: 2
+
+episode_length: 1000
+train_episode: ${train_episode}
+random_episode: 10
+eval_interval: 25
+eval_episode: 10
+update_every_episode: 100
+
+batch_size: 50
+chunk_size: 50
+nstep: 1
+
+embedding_dim: 1024
+mlp_dim: 300
+belief_dim: 200
+state_dim: 50
+
+# replay buffer
+replay_buffer_size: 1e6
+replay_buffer_num_workers: 4
+
+cnn_active_fn: relu
+mlp_active_fn: elu
+
+expl_noise: 0.3
+free_nats: 3 # or 1 TODO:
+
+world_lr: 6e-4
+actor_lr: 8e-5
+value_lr: 8e-5
+grad_clip_norm: 100
+
+imag_horizon: 15
+discount: 0.99
+disclam: 0.95
+
+# options
+save_video: false
+use_wandb: false
+save_buffer: false
+save_model: false
+save_interval: 500
+save_logging: true
+
+run_suffix: 0
+# ref: https://stackoverflow.com/questions/65104134/disable-file-output-of-hydra
+hydra:  
+    output_subdir: null  
+    run:  
+        dir: .

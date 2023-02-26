@@ -1,0 +1,9 @@
+# @package _global_
+modality: pixels
+frame_stack: 3
+
+train_episode: 3000
+num_channels: 32
+img_size: 84
+
+batch_size: 256 # 

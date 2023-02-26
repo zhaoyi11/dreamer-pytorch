@@ -1,0 +1,8 @@
+# @package _global_
+defaults:
+  - _self_
+  - hard
+
+env_name: humanoid-run
+
+nstep: 1
