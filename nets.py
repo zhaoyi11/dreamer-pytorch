@@ -8,34 +8,45 @@ from torch.distributions.transforms import Transform, TanhTransform
 from torch.distributions.transformed_distribution import TransformedDistribution
 import numpy as np
 
+class RSSMState():
+    def __init__(self, deter, stoc_mean, stoc_std):
+        stoc = stoc_mean + stoc_std * torch.rand_like(stoc_std)
+        state = torch.cat([deter, stoc], dim=-1)
+        self.field = {'deter': deter, 'stoc_mean': stoc_mean, 
+                    'stoc_std': stoc_std, 'stoc': stoc, 'state': state}
 
-# @dataclass
-# class RSSMState():
-#     def __init__(self,):
-#         deter:
-#         stoc:
-#         stoc_mean:
-#         stoc_std:
-#         state:         
-
-#     def detach(self,):
-#         pass
-
-#     def sample(self,):
-#         pass
+    def detach(self,):
+        for k, v in self.field.items():
+                self.field[k] = v.detach()
+        
+    def flatten(self,):
+        "The returned shape is [B*N, x_dim]."
+        for k, v in self.field.items():
+            self.field[k] = v.reshape(-1, v.shape[-1])
     
-#     def flatten(self,):
-#         "The returned shape is [B*N, x_dim]."
-#         pass
-    
+    @property
+    def deter(self):
+        return self.field['deter']
 
+    @property
+    def stoc(self):
+        return self.field['stoc']
+    
+    @property
+    def state(self):
+        return self.field['state']
+    
+    @property
+    def distribution(self):
+        pass # TODO: return torch.Normal
 
 
 class RSSM(nn.Module):
     def __init__(self, deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim, act_fn=nn.ELU, min_std_dev=0.1):
         super().__init__()
         self.min_std_dev = min_std_dev
-        
+        self.deter_dim, self.stoc_dim, self.embedding_dim = deter_dim, stoc_dim, embedding_dim
+
         self.fc_input = nn.Sequential(
             nn.Linear(stoc_dim + action_dim, deter_dim), act_fn()
         )
@@ -51,6 +62,7 @@ class RSSM(nn.Module):
             nn.Linear(deter_dim + embedding_dim, mlp_dim), act_fn(),
             nn.Linear(mlp_dim, 2 * stoc_dim)
         )
+
 
     def onestep_image(self, rssmState, action, nonterminal=True):
         _input = self.fc_input(torch.cat([rssmState.stoc * nonterminal, action], dim=-1))
@@ -96,9 +108,24 @@ class RSSM(nn.Module):
         else:
             return self._stack_rssmState(prior)
     
-    def _stack_rssmState(self, states):
-        pass
+    def _stack_rssmState(self, state_list):
+        rssmState = state_list[0]
+        keys = rssmState.fields.keys() # get keys of the RSSMState
+        data = {k: [] for k in keys}
+        # fill data
+        for state in state_list:
+            for k in keys:
+                data[k].append(state.fields[k])
+        
+        # set data to rssmState        
+        for k in keys:
+            rssmState.fields[k] = torch.stack(data[k], dim=0)
+        return rssmState
 
+    def init_rssmState(self, length=1):
+        return RSSMState(torch.zeros(length, self.deter_dim), 
+                        torch.zeros(length, self.deter_dim),
+                        torch.ones(length, self.deter_dim))
 
 def mlp(in_dim, mlp_dims: List[int], out_dim, act_fn=nn.ELU, out_act=nn.Identity):
     """Returns an MLP."""

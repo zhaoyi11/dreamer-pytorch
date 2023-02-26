@@ -26,6 +26,9 @@ def count_vars(module):
   return sum([np.prod(p.shape) for p in module.parameters()])
 
 
+def to_torch(xs, device, dtype=torch.float32):
+    return tuple(torch.as_tensor(x, device=device, dtype=dtype) for x in xs)
+
 class Dreamer(object):
     def __init__(self,
                 modality,
@@ -131,9 +134,14 @@ class Dreamer(object):
         pass
 
     def update(self, replay_iter, batch_size):
-        
+        batch = next(replay_iter)
+        obs, action, reward, discount, next_obses = to_torch(batch, self.device, dtype=torch.float32)
+        # swap the batch and horizon dimension -> [H, B, _shape]
+        action, reward, discount, next_obses = torch.swapaxes(action, 0, 1), torch.swapaxes(reward, 0, 1),\
+                                             torch.swapaxes(discount, 0, 1), torch.swapaxes(next_obses, 0, 1)      
+
         metrics = {}
-        metrics.update(self._update_world_loss())
+        metrics.update(self._update_world_model())
 
         set_requires_grad(self.world_param, False)
         set_requires_grad(self.value.parameters(), False)
