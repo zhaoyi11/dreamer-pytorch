@@ -206,6 +206,7 @@ class ConcatObsWrapper(dm_env.Environment):
         self._env = env
         init_time_step = self._concate_obs(self._env.reset())
         self.obs_shape = init_time_step.observation.shape
+        self.obs_dtype = init_time_step.observation.dtype
 
     def step(self, action):
         time_step = self._env.step(action)
@@ -216,7 +217,7 @@ class ConcatObsWrapper(dm_env.Environment):
         return self._concate_obs(time_step)
 
     def observation_spec(self):
-        return dm_env.specs.Array(shape=self.obs_shape, dtype='float32', name='observation')
+        return dm_env.specs.Array(shape=self.obs_shape, dtype=self.obs_dtype, name='observation')
 
     def action_spec(self):
         return self._env.action_spec()

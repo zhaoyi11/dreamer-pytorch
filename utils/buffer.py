@@ -79,7 +79,7 @@ class ReplayBufferStorage:
 
 
 class ReplayBuffer(IterableDataset):
-    def __init__(self, replay_dir, max_size, num_workers, nstep, discount,
+    def __init__(self, replay_dir, max_size, num_workers, chunk_size,
                  fetch_every, save_snapshot):
         self._replay_dir = replay_dir
         self._size = 0
@@ -87,8 +87,7 @@ class ReplayBuffer(IterableDataset):
         self._num_workers = max(1, num_workers)
         self._episode_fns = []
         self._episodes = dict()
-        self._nstep = nstep
-        self._discount = discount
+        self._chunk_size = chunk_size
         self._fetch_every = fetch_every
         self._samples_since_last_fetch = fetch_every
         self._save_snapshot = save_snapshot
@@ -149,18 +148,23 @@ class ReplayBuffer(IterableDataset):
         episode = self._sample_episode()
 
         # add +1 for the first dummy transition
-        idx = np.random.randint(0, episode_len(episode) - self._nstep + 1) + 1
-        obs = episode['observation'][idx - 1]
-        next_obses, acts, rews, discounts = [], [], [], []
-        for t in range(self._nstep):
-            _idx = idx + t
-            next_obses.append(episode['observation'][_idx])
-            acts.append(episode['action'][_idx])
-            rews.append(episode['reward'][_idx])
-            discounts.append(episode['discount'][_idx])
-        next_obses, acts, rews, discounts = np.stack(next_obses, axis=0), np.stack(acts, axis=0), np.stack(rews, axis=0), np.stack(discounts, axis=0)
+        idx = np.random.randint(0, episode_len(episode) - self._chunk_size + 1) + 1
 
-        return (obs, acts, rews, discounts, next_obses)
+        obs = episode['observation'][idx: idx+self._chunk_size]
+        action = episode['action'][idx: idx+self._chunk_size]
+        reward = episode['reward'][idx: idx+self._chunk_size]
+        nonterminal = episode['discount'][idx: idx+self._chunk_size]
+        
+        # next_obses, acts, rews, discounts = [], [], [], []
+        # for t in range(self._nstep):
+        #     _idx = idx + t
+        #     next_obses.append(episode['observation'][_idx])
+        #     acts.append(episode['action'][_idx])
+        #     rews.append(episode['reward'][_idx])
+        #     discounts.append(episode['discount'][_idx])
+        # next_obses, acts, rews, discounts = np.stack(next_obses, axis=0), np.stack(acts, axis=0), np.stack(rews, axis=0), np.stack(discounts, axis=0)
+
+        return (obs, action, reward, nonterminal)
 
     def __iter__(self):
         while True:
@@ -174,14 +178,13 @@ def _worker_init_fn(worker_id):
 
 
 def make_replay_loader(replay_dir, max_size, batch_size, num_workers,
-                       save_snapshot, nstep, discount):
+                       save_snapshot, chunk_size):
     max_size_per_worker = max_size // max(1, num_workers)
 
     iterable = ReplayBuffer(replay_dir,
                             max_size_per_worker,
                             num_workers,
-                            nstep,
-                            discount,
+                            chunk_size,
                             fetch_every=1000,
                             save_snapshot=save_snapshot)
 

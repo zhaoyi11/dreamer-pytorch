@@ -113,7 +113,7 @@ class Workspace(object):
         self.replay_loader = make_replay_loader(
             self.work_dir / 'buffer', self.cfg.replay_buffer_size,
             self.cfg.batch_size, self.cfg.replay_buffer_num_workers,
-            self.cfg.save_buffer, self.cfg.nstep, self.cfg.discount)
+            self.cfg.save_buffer, self.cfg.chunk_size)
         self._replay_iter = None
 
         self.video_recorder = VideoRecorder(self.work_dir) if self.cfg.save_video else None
@@ -138,23 +138,29 @@ class Workspace(object):
     
     def eval(self):
         step, episode, total_reward = 0, 0, 0
-        eval_until_episode = helper.Until(self.cfg.num_eval_episodes)
+        eval_until_episode = helper.Until(self.cfg.eval_episode)
 
         while eval_until_episode(episode):
             time_step = self.eval_env.reset()
-            self.video_recorder.init(self.eval_env, enabled=(episode == 0))
+            if self.video_recorder is not None:
+                self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
-                with torch.no_grad(), helper.eval_mode(self.agent):
-                    action = self.agent.act(time_step.observation,
-                                            self.global_step,
-                                            eval_mode=True)
+                with torch.no_grad():
+                    # TODO: implemnt the agent. select_action()
+                    # action = self.agent.select_action(time_step.observation,
+                    #                         self.global_step,
+                    #                         eval_mode=True)
+                    action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(dtype=self.train_env.action_spec().dtype)
+
                 time_step = self.eval_env.step(action)
-                self.video_recorder.record(self.eval_env)
+                if self.video_recorder is not None:
+                    self.video_recorder.record(self.eval_env)
                 total_reward += time_step.reward
                 step += 1
 
             episode += 1
-            self.video_recorder.save(f'{self.global_frame}.mp4')
+            if self.video_recorder is not None:
+                self.video_recorder.save(f'{self.global_frame}.mp4')
 
         with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
             log('episode_reward', total_reward / episode)
@@ -164,12 +170,9 @@ class Workspace(object):
 
     def train(self):
         # predicates
-        train_until_step = helper.Until(self.cfg.num_train_frames,
-                                       self.cfg.action_repeat)
-        seed_until_step = helper.Until(self.cfg.num_seed_frames,
-                                      self.cfg.action_repeat)
-        eval_every_step = helper.Every(self.cfg.eval_every_frames,
-                                      self.cfg.action_repeat)
+        train_until_step = helper.Until(self.cfg.train_step)
+        seed_until_step = helper.Until(self.cfg.random_episode * self.cfg.episode_length)
+        eval_every_step = helper.Every(self.cfg.eval_interval * self.cfg.episode_length)
 
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
@@ -203,9 +206,9 @@ class Workspace(object):
                 self.replay_storage.add(time_step)
                 if self.video_recorder is not None:
                     self.video_recorder.init(time_step.observation)
-                # try to save snapshot
-                if self.cfg.save_snapshot:
-                    self.save_snapshot()
+                # try to save snapshot #TODO: use the snapshot
+                # if self.cfg.save_snapshot:
+                #     self.save_snapshot()
                 episode_step = 0
                 episode_reward = 0
 
@@ -216,14 +219,19 @@ class Workspace(object):
                 self.eval()
 
             # sample action
-            with torch.no_grad(), helper.eval_mode(self.agent):
-                action = self.agent.select_action(time_step.observation,
-                                        self.global_step,
-                                        eval_mode=False)
+            with torch.no_grad():
+                if not seed_until_step(self.global_step):
+                    # action = self.agent.select_action(time_step.observation,
+                    #                         self.global_step,
+                    #                         eval_mode=False)
+                    action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(dtype=self.train_env.action_spec().dtype)
+
+                else:
+                    action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(dtype=self.train_env.action_spec().dtype)
 
             # try to update the agent
             if not seed_until_step(self.global_step):
-                metrics = self.agent.update(self.replay_iter, self.global_step)
+                metrics = self.agent.update(self.replay_iter)
                 self.logger.log_metrics(metrics, self.global_frame, ty='train')
 
             # take env step

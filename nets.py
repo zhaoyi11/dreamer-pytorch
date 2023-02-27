@@ -1,6 +1,6 @@
 from typing import Optional, List
 import torch
-from torch import jit, nn
+from torch import nn
 from torch.nn import functional as F
 import torch.distributions
 from torch.distributions.normal import Normal

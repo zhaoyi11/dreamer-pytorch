@@ -68,12 +68,14 @@ class Dreamer(object):
         self.free_nats = torch.full((1,), free_nats, dtype=torch.float32, device=self.device)
 
         self.coef_pred, self.coef_dyn, self.coef_rep = coef_pred, coef_dyn, coef_rep
+        self.grad_clip_norm = grad_clip_norm
+
 
     def infer_state(self, rssmState, action, observation):
-        prior_rssmState, posterior_rssmState = self.rssm.onestep_observe(self.encoder(observation, rssmState, action))
+        prior_rssmState, posterior_rssmState = self.rssm.onestep_observe(self.encoder(observation), rssmState, action)
         return posterior_rssmState 
 
-    def _update_world_model(self, actions, rewards, nonterminals, obses):
+    def _update_world_model(self, obses, actions, rewards, nonterminals):
         init_rssmState = self.rssm.init_rssmState()
         obs_embeddings = self.encoder(obses)
         prior_rssmState, posterior_rssmState = self.rssm.rollout(init_rssmState, actions, nonterminals, obs_embeddings)
@@ -82,14 +84,13 @@ class Dreamer(object):
                                         obses, reduction='none').sum(dim=(2, 3, 4)).mean(dim=(0, 1))
         reward_loss = F.mse_loss(self.reward_fn(posterior_rssmState), rewards, reduction='none').mean(dim=(0, 1))
         kl_dyn = torch.max(
-            kl_divergence(Independent(Normal())),
+            kl_divergence(prior_rssmState.detach().dist, posterior_rssmState.dist),
             self.free_nats
         )
         kl_rep = torch.max(
-            kl_divergence(),
+            kl_divergence(prior_rssmState.dist, posterior_rssmState.detach().dist),
             self.free_nats
         )
-
         loss = reconstruction_loss + reward_loss + kl_dyn + kl_rep
 
         self.world_optim.zero_grad()
@@ -133,15 +134,16 @@ class Dreamer(object):
     def _image(self):
         pass
 
-    def update(self, replay_iter, batch_size):
+    def update(self, replay_iter):
         batch = next(replay_iter)
-        obs, action, reward, discount, next_obses = to_torch(batch, self.device, dtype=torch.float32)
+        obs, action, reward, nonterminal = to_torch(batch, self.device, dtype=torch.float32)
         # swap the batch and horizon dimension -> [H, B, _shape]
-        action, reward, discount, next_obses = torch.swapaxes(action, 0, 1), torch.swapaxes(reward, 0, 1),\
-                                             torch.swapaxes(discount, 0, 1), torch.swapaxes(next_obses, 0, 1)      
+        obs, action, reward, nonterminal = torch.swapaxes(obs, 0, 1), torch.swapaxes(action, 0, 1),\
+                                                torch.swapaxes(reward, 0, 1),\
+                                                torch.swapaxes(nonterminal, 0, 1)
 
         metrics = {}
-        metrics.update(self._update_world_model())
+        metrics.update(self._update_world_model(obs, action, reward, nonterminal))
 
         set_requires_grad(self.world_param, False)
         set_requires_grad(self.value.parameters(), False)
