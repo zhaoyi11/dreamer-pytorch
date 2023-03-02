@@ -71,6 +71,8 @@ class Dreamer(object):
         self.coef_pred, self.coef_dyn, self.coef_rep = coef_pred, coef_dyn, coef_rep
         self.grad_clip_norm = grad_clip_norm
         self.imag_length = imag_length
+        self.discount = 0.99
+        self.disclam = 0.95
 
     def infer_state(self, rssmState, action, observation):
         prior_rssmState, posterior_rssmState = self.rssm.onestep_observe(self.encoder(observation), rssmState, action)
@@ -105,8 +107,34 @@ class Dreamer(object):
 
         return {'world_loss': loss.item()}, posterior_rssmState
 
-    def _update_actor(self, rssmState, logp):
+    def _update_actor_critic(self, rssmState, logp):
+        set_requires_grad(self.value.parameters(), False)
+        states = rssmState.state
+        rewards = self.reward_fn(states)
+        values = self.value_tar(states)
         
+        pcont = self.discount * torch.ones_like(rewards).detach()
+
+        values[1:] -= 1e-5 * logp
+
+        returns = self._cal_returns(rewards[:-1], values[:-1], values[-1], pcont[:-1], lambda_=self.disclam)
+        discount = torch.cumprod(torch.cat([torch.ones_like(pcont[:1]),\
+                                            pcont[:-2]],0),0).detach()
+        actor_loss = -torch.mean(discount * returns)
+        self.actor_optim.zero_grad()
+        actor_loss.backward()
+        self.actor_optim.step()        
+
+        set_requires_grad(self.value.parameters(), True)
+        
+        # update value function
+        target_v = returns.detach()
+        pred_v = self.value(states.detach())[:-1]
+        value_loss = F.mse_loss(pred_v, target_v)
+
+        self.value_optim.zero_grad()
+        value_loss.backward()
+        self.value_optim.step()
         return {}
     
     def _update_critic(self, rssmState, logp):
@@ -164,18 +192,11 @@ class Dreamer(object):
         metrics.update()
 
         set_requires_grad(self.world_param, False)
-        set_requires_grad(self.value.parameters(), False)
-        
         # latent imagination
         imag_rssmStates, imag_logp = self._image(rssmState.detach().flatten())
-        import ipdb; ipdb.set_trace()
-        metrics.update(self._update_actor(imag_rssmStates, imag_logp))
         
-        # update value function
-        set_requires_grad(self.value.parameters(), True)
-        metrics.update(self._update_critic(imag_rssmStates.detach(), imag_logp))
+        metrics.update(self._update_actor_critic(imag_rssmStates, imag_logp))
         set_requires_grad(self.world_param, True)
-
         return metrics
 
 

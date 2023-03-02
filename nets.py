@@ -222,13 +222,13 @@ class Value(nn.Module):
         super().__init__()
         self.trunk = nn.Sequential(nn.Linear(deter_dim+stoc_dim, mlp_dims[0]),
                             nn.LayerNorm(mlp_dims[0]), nn.Tanh())
-        self._v1 = mlp(mlp_dims[0], mlp_dims[1:], 1)
-        self._v2 = mlp(mlp_dims[0], mlp_dims[1:], 1)
+        self._value = mlp(mlp_dims[0], mlp_dims[1:], 1)
+
         self.apply(orthogonal_init)
 
     def forward(self, z):
         feature = self.trunk(z)
-        return self._v1(feature), self._v2(feature)
+        return self._value(feature)
 
 
 class CNNEncoder(nn.Module):
