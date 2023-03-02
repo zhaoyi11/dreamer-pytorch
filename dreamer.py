@@ -37,6 +37,7 @@ class Dreamer(object):
                 world_lr, actor_lr, value_lr, grad_clip_norm,
                 free_nats,
                 coef_pred, coef_dyn, coef_rep,
+                imag_length,
                 device):
         self.device = torch.device(device)
 
@@ -47,7 +48,7 @@ class Dreamer(object):
             # self.decoder = nets.CNNDecoder().to(self.device)
         else:
             self.encoder = nets.mlp(obs_shape[0], [mlp_dim, mlp_dim], embedding_dim).to(self.device)
-            self.decoder = nets.mlp(obs_shape[0], [mlp_dim, mlp_dim], embedding_dim).to(self.device)
+            self.decoder = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim], obs_shape[0]).to(self.device)
 
         self.rssm = nets.RSSM(deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim).to(self.device)
         self.reward_fn = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim], 1).to(self.device)
@@ -69,28 +70,32 @@ class Dreamer(object):
 
         self.coef_pred, self.coef_dyn, self.coef_rep = coef_pred, coef_dyn, coef_rep
         self.grad_clip_norm = grad_clip_norm
-
+        self.imag_length = imag_length
 
     def infer_state(self, rssmState, action, observation):
         prior_rssmState, posterior_rssmState = self.rssm.onestep_observe(self.encoder(observation), rssmState, action)
         return posterior_rssmState 
 
     def _update_world_model(self, obses, actions, rewards, nonterminals):
-        init_rssmState = self.rssm.init_rssmState()
-        obs_embeddings = self.encoder(obses)
+        """ The inputs sequences are: a, r, o | a, r, o| a, r, o"""
+        L, B, x_dim = obses.shape
+        init_rssmState = self.rssm.init_rssmState(L).to(device=self.device)
+        obs_embeddings = self.encoder(obses) # TODO: might a bug here.
         prior_rssmState, posterior_rssmState = self.rssm.rollout(init_rssmState, actions, nonterminals, obs_embeddings)
-
-        reconstruction_loss = F.mse_loss(self.decoder(posterior_rssmState), 
-                                        obses, reduction='none').sum(dim=(2, 3, 4)).mean(dim=(0, 1))
-        reward_loss = F.mse_loss(self.reward_fn(posterior_rssmState), rewards, reduction='none').mean(dim=(0, 1))
+        
+        # TODO: might be a bug in the self.decoder() -- the input has one additional dim
+        reconstruction_loss = F.mse_loss(self.decoder(posterior_rssmState.state), 
+                                        obses, reduction='none').sum(dim=2).mean(dim=(0, 1))
+        reward_loss = F.mse_loss(self.reward_fn(posterior_rssmState.state), rewards, reduction='none').sum(dim=2).mean(dim=(0, 1))
+        
         kl_dyn = torch.max(
             kl_divergence(prior_rssmState.detach().dist, posterior_rssmState.dist),
-            self.free_nats
-        )
+            self.free_nats).mean()
+        
         kl_rep = torch.max(
             kl_divergence(prior_rssmState.dist, posterior_rssmState.detach().dist),
-            self.free_nats
-        )
+            self.free_nats).mean()
+
         loss = reconstruction_loss + reward_loss + kl_dyn + kl_rep
 
         self.world_optim.zero_grad()
@@ -98,13 +103,14 @@ class Dreamer(object):
         nn.utils.clip_grad_norm_(self.world_param, self.grad_clip_norm, norm_type=2)
         self.world_optim.step()
 
-        return {'world_loss': loss.item()}
+        return {'world_loss': loss.item()}, posterior_rssmState
 
-    def _update_actor(self):
-        pass
-
-    def _update_critic(self):
-        pass
+    def _update_actor(self, rssmState, logp):
+        
+        return {}
+    
+    def _update_critic(self, rssmState, logp):
+        return {}
     
     def _cal_returns(self, reward, value, bootstrap, pcont, lambda_):
         """
@@ -131,8 +137,19 @@ class Dreamer(object):
         returns = torch.flip(torch.stack(outputs), [0])
         return returns
 
-    def _image(self):
-        pass
+    def _image(self, rssmState):
+        # rollout the dynamic model forward to generate imagined trajectories 
+        # TODO: check states.requires_grad
+        imag_rssmStates, imag_logps = [rssmState], []
+        for i in range(self.imag_length):
+            _rssm_state = imag_rssmStates[-1]
+            pi_dist = self.actor(_rssm_state.state) # TODO: decide the api
+            action = pi_dist.rsample()
+            imag_rssmStates.append(self.rssm.onestep_image(_rssm_state, action, nonterminal=True))
+            imag_logps.append(pi_dist.log_prob(action).sum(-1, keepdim=True))
+
+        return self.rssm.stack_rssmState(imag_rssmStates), torch.stack(imag_logps, dim=0).to(self.device)
+
 
     def update(self, replay_iter):
         batch = next(replay_iter)
@@ -143,18 +160,20 @@ class Dreamer(object):
                                                 torch.swapaxes(nonterminal, 0, 1)
 
         metrics = {}
-        metrics.update(self._update_world_model(obs, action, reward, nonterminal))
+        world_metrics, rssmState = self._update_world_model(obs, action, reward, nonterminal)
+        metrics.update()
 
         set_requires_grad(self.world_param, False)
         set_requires_grad(self.value.parameters(), False)
         
         # latent imagination
-        imag_rssmStates, imag_logp, pi_entropy = self._image()
-        metrics.update(self._update_actor())
+        imag_rssmStates, imag_logp = self._image(rssmState.detach().flatten())
+        import ipdb; ipdb.set_trace()
+        metrics.update(self._update_actor(imag_rssmStates, imag_logp))
         
         # update value function
         set_requires_grad(self.value.parameters(), True)
-        metrics.update(self._update_actor())
+        metrics.update(self._update_critic(imag_rssmStates.detach(), imag_logp))
         set_requires_grad(self.world_param, True)
 
         return metrics

@@ -64,6 +64,7 @@ class Workspace(object):
             'coef_pred': self.cfg.coef_pred, 
             'coef_dyn': self.cfg.coef_dyn, 
             'coef_rep': self.cfg.coef_rep,
+            'imag_length': self.cfg.imag_length,
             'device': self.cfg.device, 
         }
         self.agent = Dreamer(**dreamer_kwargs)

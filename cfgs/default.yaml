@@ -28,6 +28,7 @@ update_every_episode: 100
 
 batch_size: 50
 chunk_size: 50
+imag_length: 15
 nstep: 1
 
 embedding_dim: 1024

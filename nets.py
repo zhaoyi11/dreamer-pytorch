@@ -2,12 +2,13 @@ from typing import Optional, List
 import torch
 from torch import nn
 from torch.nn import functional as F
-import torch.distributions
+import torch.distributions as td
 from torch.distributions.normal import Normal
 from torch.distributions.transforms import Transform, TanhTransform
 from torch.distributions.transformed_distribution import TransformedDistribution
 import numpy as np
 
+import utils.helper as h
 class RSSMState():
     def __init__(self, deter, stoc_mean, stoc_std):
         stoc = stoc_mean + stoc_std * torch.rand_like(stoc_std)
@@ -17,13 +18,20 @@ class RSSMState():
 
     def detach(self,):
         for k, v in self.field.items():
-                self.field[k] = v.detach()
-        
+            self.field[k] = v.detach()
+        return self
+
     def flatten(self,):
         "The returned shape is [B*N, x_dim]."
         for k, v in self.field.items():
             self.field[k] = v.reshape(-1, v.shape[-1])
+        return self
     
+    def to(self, device='cpu', dtype=torch.float32):
+        for k, v in self.field.items():
+            self.field[k] = v.to(device=device, dtype=dtype)
+        return self
+
     @property
     def deter(self):
         return self.field['deter']
@@ -37,8 +45,9 @@ class RSSMState():
         return self.field['state']
     
     @property
-    def distribution(self):
-        pass # TODO: return torch.Normal
+    def dist(self):
+        mean, std = self.field['stoc_mean'], self.field['stoc_std']
+        return td.independent.Independent(Normal(mean, std), 1)
 
 
 class RSSM(nn.Module):
@@ -71,7 +80,7 @@ class RSSM(nn.Module):
         prior_mu, prior_std = torch.chunk(self.fc_prior(deter_state), 2, dim=-1)
         prior_std = F.softplus(prior_std) + self.min_std_dev
 
-        prior_rssmState = RSSMState(prior_mu, prior_std, deter_state)
+        prior_rssmState = RSSMState(deter_state, prior_mu, prior_std)
 
         return prior_rssmState
 
@@ -84,11 +93,19 @@ class RSSM(nn.Module):
         posterior_mu, posterior_std = torch.chunk(self.fc_posterior(_input), 2, dim=-1)
         posterior_std = F.softplus(posterior_std) + self.min_std_dev
 
-        posterior_rssmState = RSSMState(posterior_mu, posterior_std, deter_state)
+        posterior_rssmState = RSSMState(deter_state, posterior_mu, posterior_std)
 
         return prior_rssmState, posterior_rssmState
     
     def rollout(self, init_rssmState, actions, nonterminals, obs_embeddings=None):
+        """ The inputs/outputs sequences are
+            time  : 0 1 2 3
+            rssmS : x
+            obs   : - x x x
+            action: x x x 
+            nonter: x x x
+            output: - x x x
+        """
         prior = []
         if obs_embeddings is not None:
             posterior = []
@@ -104,28 +121,28 @@ class RSSM(nn.Module):
                 prior.append(prior_rssmState)
         
         if obs_embeddings is not None:
-            return self._stack_rssmState(prior), self._stack_rssmState(posterior)
+            return self.stack_rssmState(prior), self.stack_rssmState(posterior)
         else:
-            return self._stack_rssmState(prior)
+            return self.stack_rssmState(prior)
     
-    def _stack_rssmState(self, state_list):
+    def stack_rssmState(self, state_list):
         rssmState = state_list[0]
-        keys = rssmState.fields.keys() # get keys of the RSSMState
+        keys = rssmState.field.keys() # get keys of the RSSMState
         data = {k: [] for k in keys}
         # fill data
         for state in state_list:
             for k in keys:
-                data[k].append(state.fields[k])
+                data[k].append(state.field[k])
         
         # set data to rssmState        
         for k in keys:
-            rssmState.fields[k] = torch.stack(data[k], dim=0)
+            rssmState.field[k] = torch.stack(data[k], dim=0)
         return rssmState
 
     def init_rssmState(self, length=1):
         return RSSMState(torch.zeros(length, self.deter_dim), 
-                        torch.zeros(length, self.deter_dim),
-                        torch.ones(length, self.deter_dim))
+                        torch.zeros(length, self.stoc_dim),
+                        torch.ones(length, self.stoc_dim))
 
 def mlp(in_dim, mlp_dims: List[int], out_dim, act_fn=nn.ELU, out_act=nn.Identity):
     """Returns an MLP."""
@@ -183,15 +200,21 @@ class Actor(nn.Module):
         super().__init__()
         self.trunk = nn.Sequential(nn.Linear(deter_dim+stoc_dim, mlp_dims[0]),
                             nn.LayerNorm(mlp_dims[0]), nn.Tanh())
-        self._actor = mlp(mlp_dims[0], mlp_dims[1:], action_dim)
+        self._actor = mlp(mlp_dims[0], mlp_dims[1:], action_dim * 2)
+        self.mu_scale = 5
+        self.init_std = 5
+        self.raw_init_std = np.log(np.exp(self.init_std) - 1)
+        self.min_std=1e-4
         self.apply(orthogonal_init) 
 
-    def forward(self, obs, std):
+    def forward(self, obs):
         feature = self.trunk(obs)
-        mu = self._actor(feature)
-        mu = torch.tanh(mu)
-        std = torch.ones_like(mu) * std
-        return h.TruncatedNormal(mu, std)
+        x = self._actor(feature)
+        mu, std = torch.chunk(x, 2, dim=-1)
+        # bound the action to [-mu_scale, mu_scale] --> to avoid numerical instabilities.  For computing log-probabilities, we need to invert the tanh and this becomes difficult in highly saturated regions.
+        mu = self.mu_scale * torch.tanh(mu / self.mu_scale) 
+        std = F.softplus(std + self.raw_init_std) + self.min_std
+        return h.SquashedNormal(mu, std)
     
 
 class Value(nn.Module):
