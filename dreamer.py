@@ -74,10 +74,6 @@ class Dreamer(object):
         self.discount = 0.99
         self.disclam = 0.95
 
-    def infer_state(self, rssmState, action, observation):
-        prior_rssmState, posterior_rssmState = self.rssm.onestep_observe(self.encoder(observation), rssmState, action)
-        return posterior_rssmState 
-
     def _update_world_model(self, obses, actions, rewards, nonterminals):
         """ The inputs sequences are: a, r, o | a, r, o| a, r, o"""
         L, B, x_dim = obses.shape
@@ -135,9 +131,6 @@ class Dreamer(object):
         self.value_optim.zero_grad()
         value_loss.backward()
         self.value_optim.step()
-        return {}
-    
-    def _update_critic(self, rssmState, logp):
         return {}
     
     def _cal_returns(self, reward, value, bootstrap, pcont, lambda_):
@@ -200,9 +193,23 @@ class Dreamer(object):
         return metrics
 
 
+    def infer_state(self, rssmState, action, observation):
+        if isinstance(observation, np.ndarray):
+            observation = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+        if isinstance(action, np.ndarray):
+            action = torch.tensor(action, dtype=torch.float32, device=self.device).unsqueeze(0)
+            
+        prior_rssmState, posterior_rssmState = self.rssm.onestep_observe(self.encoder(observation), rssmState, action)
+        return posterior_rssmState 
+
     @torch.no_grad()
-    def select_action(self, obs, step, eval_mode=False):
-        pass
+    def select_action(self, rssm_state, step, eval_mode=False):
+        act_dist = self.actor(rssm_state.state)
+        if eval_mode:
+            action = act_dist.sample()
+        else:
+            action = act_dist.mean
+        return action[0]
 
     def save(self, fp):
         pass

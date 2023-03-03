@@ -177,6 +177,7 @@ class Workspace(object):
 
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
+        rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device), np.zeros(self.cfg.action_shape) # the dummy rssm_state and action are used to init the rssm state
         self.replay_storage.add(time_step)
         if self.video_recorder is not None:
             self.video_recorder.init(time_step.observation)
@@ -201,9 +202,10 @@ class Workspace(object):
                         log('episode', self.global_episode)
                         log('buffer_size', len(self.replay_storage))
                         log('step', self.global_step)
-
+                print(f'{self.global_episode}: {episode_reward}')
                 # reset env
                 time_step = self.train_env.reset()
+                rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device), np.zeros(self.cfg.action_shape) # the dummy rssm_state and action are used to init the rssm state
                 self.replay_storage.add(time_step)
                 if self.video_recorder is not None:
                     self.video_recorder.init(time_step.observation)
@@ -220,16 +222,16 @@ class Workspace(object):
                 self.eval()
 
             # sample action
+            rssm_state = self.agent.infer_state(rssm_state, action, time_step.observation)
             with torch.no_grad():
                 if not seed_until_step(self.global_step):
-                    # action = self.agent.select_action(time_step.observation,
-                    #                         self.global_step,
-                    #                         eval_mode=False)
-                    action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(dtype=self.train_env.action_spec().dtype)
-
+                    action = self.agent.select_action(rssm_state,
+                                            self.global_step,
+                                            eval_mode=False)
+                    action = action.cpu().numpy()
                 else:
-                    action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(dtype=self.train_env.action_spec().dtype)
-
+                    action = np.random.uniform(-1, 1, self.train_env.action_spec().shape
+                                               ).astype(dtype=self.train_env.action_spec().dtype)
             # try to update the agent
             if not seed_until_step(self.global_step):
                 metrics = self.agent.update(self.replay_iter)
