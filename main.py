@@ -186,8 +186,15 @@ class Workspace(object):
             if time_step.last(): # reset and logging after one trajectory
                 self._global_episode += 1
                 
+                # try to update the agent
+                if not seed_until_step(self.global_step):
+                    for i in range(100): # TODO: put 100 to config file
+                        metrics = self.agent.update(self.replay_iter)
+                    self.logger.log_metrics(metrics, self.global_frame, ty='train')      
+
                 if self.video_recorder is not None:
                     self.video_recorder.save(f'{self.global_frame}.mp4')
+
                 # wait until all the metrics schema is populated
                 if metrics is not None:
                     # log stats
@@ -203,6 +210,7 @@ class Workspace(object):
                         log('buffer_size', len(self.replay_storage))
                         log('step', self.global_step)
                 print(f'{self.global_episode}: {episode_reward}')
+                
                 # reset env
                 time_step = self.train_env.reset()
                 rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device), np.zeros(self.cfg.action_shape) # the dummy rssm_state and action are used to init the rssm state
@@ -230,14 +238,9 @@ class Workspace(object):
                                             eval_mode=False)
                     action = action.cpu().numpy()
                 else:
-                    action = np.random.uniform(-1, 1, self.train_env.action_spec().shape
-                                               ).astype(dtype=self.train_env.action_spec().dtype)
-            # try to update the agent
-            if not seed_until_step(self.global_step):
-                metrics = self.agent.update(self.replay_iter)
-                self.logger.log_metrics(metrics, self.global_frame, ty='train')
-
-            # take env step
+                    action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(
+                                                dtype=self.train_env.action_spec().dtype)
+            # interact with environment
             time_step = self.train_env.step(action)
             episode_reward += time_step.reward
             self.replay_storage.add(time_step)

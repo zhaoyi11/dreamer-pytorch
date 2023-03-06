@@ -11,9 +11,9 @@ from torch.distributions.independent import Independent
 from torch.distributions.kl import kl_divergence
 from torch.nn import functional as F
 from tqdm import tqdm
-# from memory import ExperienceReplay
-# from models import bottle, Encoder, ObservationModel, RewardModel, TransitionModel, ValueModel, ActorModel, PCONTModel
+
 import nets
+import utils.helper as helper
 
 def set_requires_grad(param, value):
 	"""Enable/disable gradients for a given (sub)network."""
@@ -190,6 +190,9 @@ class Dreamer(object):
         
         metrics.update(self._update_actor_critic(imag_rssmStates, imag_logp))
         set_requires_grad(self.world_param, True)
+
+        # soft update the target value function
+        helper.soft_update_params(self.value, self.value_tar, tau=0.005) # TODO: check whether we should tune the tau
         return metrics
 
 
@@ -209,6 +212,7 @@ class Dreamer(object):
             action = act_dist.sample()
         else:
             action = act_dist.mean
+
         return action[0]
 
     def save(self, fp):

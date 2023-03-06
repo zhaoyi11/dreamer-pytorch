@@ -9,6 +9,7 @@ from torch.distributions.transformed_distribution import TransformedDistribution
 import numpy as np
 
 import utils.helper as h
+
 class RSSMState():
     def __init__(self, deter, stoc_mean, stoc_std):
         stoc = stoc_mean + stoc_std * torch.rand_like(stoc_std)
