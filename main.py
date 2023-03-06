@@ -213,7 +213,8 @@ class Workspace(object):
                 
                 # reset env
                 time_step = self.train_env.reset()
-                rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device), np.zeros(self.cfg.action_shape) # the dummy rssm_state and action are used to init the rssm state
+                rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device), \
+                                    np.zeros(self.cfg.action_shape) # the dummy rssm_state and action are used to init the rssm state
                 self.replay_storage.add(time_step)
                 if self.video_recorder is not None:
                     self.video_recorder.init(time_step.observation)
@@ -233,9 +234,12 @@ class Workspace(object):
             rssm_state = self.agent.infer_state(rssm_state, action, time_step.observation)
             with torch.no_grad():
                 if not seed_until_step(self.global_step):
-                    action = self.agent.select_action(rssm_state,
-                                            self.global_step,
-                                            eval_mode=False)
+                    # action = self.agent.select_action(rssm_state,
+                    #                         self.global_step,
+                    #                         eval_mode=False)
+                    
+                    action = self.agent.plan(rssm_state, self.global_step, eval_mode=False)
+                    print(action.shape, '00000')
                     action = action.cpu().numpy()
                 else:
                     action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(

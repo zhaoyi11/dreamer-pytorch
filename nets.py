@@ -28,6 +28,21 @@ class RSSMState():
             self.field[k] = v.reshape(-1, v.shape[-1])
         return self
     
+    def suqeeze(self, dim=0):
+        for k, v in self.field.items():
+            self.field[k] = v.squeeze(dim)
+        return self
+
+    def unsqueeze(self, dim=0):
+        for k, v in self.field.items():
+            self.field[k] = v.unsqueeze(dim)
+        return self
+
+    def repeat(self, *size):
+        for k, v in self.field.items():
+            self.field[k] = v.repeat(*size)
+        return self
+    
     def to(self, device='cpu', dtype=torch.float32):
         for k, v in self.field.items():
             self.field[k] = v.to(device=device, dtype=dtype)
@@ -102,7 +117,7 @@ class RSSM(nn.Module):
         """ The inputs/outputs sequences are
             time  : 0 1 2 3
             rssmS : x
-            obs   : - x x x
+            obs   : - x x x (optional)
             action: x x x 
             nonter: x x x
             output: - x x x

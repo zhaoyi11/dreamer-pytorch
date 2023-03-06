@@ -38,7 +38,8 @@ class Dreamer(object):
                 free_nats,
                 coef_pred, coef_dyn, coef_rep,
                 imag_length,
-                device):
+                device, 
+                mppi_kwargs=None):
         self.device = torch.device(device)
 
         # models
@@ -73,6 +74,9 @@ class Dreamer(object):
         self.imag_length = imag_length
         self.discount = 0.99
         self.disclam = 0.95
+
+        self.mppi_kwargs = mppi_kwargs
+        self.action_dim = action_dim
 
     def _update_world_model(self, obses, actions, rewards, nonterminals):
         """ The inputs sequences are: a, r, o | a, r, o| a, r, o"""
@@ -111,7 +115,7 @@ class Dreamer(object):
         
         pcont = self.discount * torch.ones_like(rewards).detach()
 
-        values[1:] -= 1e-5 * logp
+        # values[1:] -= 1e-5 * logp
 
         returns = self._cal_returns(rewards[:-1], values[:-1], values[-1], pcont[:-1], lambda_=self.disclam)
         discount = torch.cumprod(torch.cat([torch.ones_like(pcont[:1]),\
@@ -182,17 +186,17 @@ class Dreamer(object):
 
         metrics = {}
         world_metrics, rssmState = self._update_world_model(obs, action, reward, nonterminal)
-        metrics.update()
+        metrics.update(world_metrics)
 
-        set_requires_grad(self.world_param, False)
-        # latent imagination
-        imag_rssmStates, imag_logp = self._image(rssmState.detach().flatten())
+        # set_requires_grad(self.world_param, False)
+        # # latent imagination
+        # imag_rssmStates, imag_logp = self._image(rssmState.detach().flatten())
         
-        metrics.update(self._update_actor_critic(imag_rssmStates, imag_logp))
-        set_requires_grad(self.world_param, True)
+        # metrics.update(self._update_actor_critic(imag_rssmStates, imag_logp))
+        # set_requires_grad(self.world_param, True)
 
-        # soft update the target value function
-        helper.soft_update_params(self.value, self.value_tar, tau=0.005) # TODO: check whether we should tune the tau
+        # # soft update the target value function
+        # helper.soft_update_params(self.value, self.value_tar, tau=0.005) # TODO: check whether we should tune the tau
         return metrics
 
 
@@ -214,6 +218,59 @@ class Dreamer(object):
             action = act_dist.mean
 
         return action[0]
+
+    @torch.no_grad()
+    def plan(self, rstate, step, eval_mode=False):
+        # num_samples = self.mppi_kwargs.get('num_samples')
+        # plan_horizon = self.mppi_kwargs.get('plan_horizon')
+        # num_topk = self.mppi_kwargs.get('num_topk')
+        # iteration = self.mppi_kwargs.get('iteration')
+        # temp = self.mppi_kwargs.get('temperature')
+        # momentum = self.mppi_kwargs.get('momentum')
+
+        num_samples = 1000
+        plan_horizon = 12
+        num_topk = 100
+        iteration = 10
+        temp = 0.5
+        momentum = 0.1
+        
+        rstate = rstate.repeat(num_samples, 1) # shape [num_samples, x_dim]
+    
+        mu = torch.zeros(plan_horizon, self.action_dim, device=self.device)
+        std = torch.ones_like(mu)
+
+        for _ in range(iteration):
+            actions = mu.unsqueeze(1) + std.unsqueeze(1) * \
+                    torch.randn(plan_horizon, num_samples, self.action_dim).to(device=self.device, dtype=mu.dtype)
+            actions.clamp_(-1, 1) # shape: [plan_horizon, num_samples, action_dim]
+            rstate_prior = self.rssm.rollout(rstate, actions, torch.ones_like(actions))
+
+            returns = self.reward_fn(rstate_prior.state)
+            returns = returns.sum(dim=0).squeeze(-1)
+
+            # Re-fit belief to the K best action sequences
+            elite_idxs = torch.topk(returns, num_topk, dim=0, sorted=False).indices
+            elite_returns, elite_actions = returns[elite_idxs], actions[:, elite_idxs]
+
+            # update action_mean and action_std
+            max_return = torch.max(returns)
+
+            score = torch.exp(temp * (elite_returns - max_return))
+            score /= score.sum()
+
+            _mean = torch.sum(score.reshape(1, -1, 1) * elite_actions, dim=1) # weighted man and std over elites
+            _stddev = torch.sqrt(torch.sum(score.reshape(1, -1, 1) * (elite_actions - _mean.unsqueeze(1)) ** 2, dim=1))
+            
+            # momentum udate of mean
+            mu, std = momentum * mu + (1. - momentum) * _mean, _stddev
+
+        # outputs (weighted samples)
+        score = score.cpu().numpy()
+        output = elite_actions[:, np.random.choice(np.arange(score.shape[0]), p=score)] 
+
+        return output[0] # [action_dim]
+
 
     def save(self, fp):
         pass
