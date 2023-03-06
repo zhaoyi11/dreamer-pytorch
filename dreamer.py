@@ -215,7 +215,7 @@ for episode in tqdm(range(metrics['episodes'][-1] + 1, args.episodes + 1), total
     metrics['train_rewards'].append(total_reward)
     lineplot(metrics['episodes'][-len(metrics['train_rewards']):], metrics['train_rewards'], 'train_rewards',
              results_dir)
-
+    print('episode', episode, 'R:', total_reward)
   # Test model
   if episode % args.test_interval == 0:
     # Set models to eval mode
