@@ -239,7 +239,6 @@ class Workspace(object):
                     #                         eval_mode=False)
                     
                     action = self.agent.plan(rssm_state, self.global_step, eval_mode=False)
-                    print(action.shape, '00000')
                     action = action.cpu().numpy()
                 else:
                     action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(

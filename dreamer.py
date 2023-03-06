@@ -205,7 +205,7 @@ class Dreamer(object):
             observation = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
         if isinstance(action, np.ndarray):
             action = torch.tensor(action, dtype=torch.float32, device=self.device).unsqueeze(0)
-            
+        
         prior_rssmState, posterior_rssmState = self.rssm.onestep_observe(self.encoder(observation), rssmState, action)
         return posterior_rssmState 
 
@@ -234,6 +234,7 @@ class Dreamer(object):
         iteration = 10
         temp = 0.5
         momentum = 0.1
+        action_noise=0.3
         
         rstate = rstate.repeat(num_samples, 1) # shape [num_samples, x_dim]
     
@@ -269,6 +270,8 @@ class Dreamer(object):
         score = score.cpu().numpy()
         output = elite_actions[:, np.random.choice(np.arange(score.shape[0]), p=score)] 
 
+        if not eval_mode:
+            output = output + action_noise * torch.randn_like(output)
         return output[0] # [action_dim]
 
 
