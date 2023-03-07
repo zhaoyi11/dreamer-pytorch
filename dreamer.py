@@ -247,7 +247,8 @@ class Dreamer(object):
             actions = mu.unsqueeze(1) + std.unsqueeze(1) * \
                     torch.randn(plan_horizon, num_samples, self.action_dim).to(device=self.device, dtype=mu.dtype)
             actions.clamp_(-1, 1) # shape: [plan_horizon, num_samples, action_dim]
-            rstate_prior = self.rssm.rollout(rstate, actions, torch.ones_like(actions))
+            nonterminals = torch.ones(plan_horizon, num_samples, 1, device=self.device, dtype=mu.dtype)
+            rstate_prior = self.rssm.rollout(rstate, actions, nonterminals)
 
             returns = self.reward_fn(rstate_prior.state)
             returns = returns.sum(dim=0).squeeze(-1)
