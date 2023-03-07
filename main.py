@@ -143,6 +143,8 @@ class Workspace(object):
 
         while eval_until_episode(episode):
             time_step = self.eval_env.reset()
+            rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device),\
+                                 np.zeros(self.cfg.action_shape)
             if self.video_recorder is not None:
                 self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
@@ -151,8 +153,10 @@ class Workspace(object):
                     # action = self.agent.select_action(time_step.observation,
                     #                         self.global_step,
                     #                         eval_mode=True)
-                    action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(dtype=self.train_env.action_spec().dtype)
-
+                    rssm_state = self.agent.infer_state(rssm_state, action, time_step.observation)
+                    action = self.agent.plan(rssm_state, self.global_step, eval_mode=True)
+                    action = action.cpu().numpy()
+                    
                 time_step = self.eval_env.step(action)
                 if self.video_recorder is not None:
                     self.video_recorder.record(self.eval_env)
@@ -177,7 +181,8 @@ class Workspace(object):
 
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
-        rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device), np.zeros(self.cfg.action_shape) # the dummy rssm_state and action are used to init the rssm state
+        rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device),\
+                             np.zeros(self.cfg.action_shape) # the dummy rssm_state and action are used to init the rssm state
         self.replay_storage.add(time_step)
         if self.video_recorder is not None:
             self.video_recorder.init(time_step.observation)
