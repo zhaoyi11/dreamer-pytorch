@@ -111,6 +111,7 @@ class Dreamer(object):
         return {'world_loss': loss.item(), }, posterior_rssmState
 
     def _update_actor_critic(self, rssmState, logp):
+
         set_requires_grad(self.value.parameters(), False)
         states = rssmState.state
         rewards = self.reward_fn(states)
@@ -118,6 +119,7 @@ class Dreamer(object):
         
         pcont = self.discount * torch.ones_like(rewards).detach()
 
+        # TODO: add logp
         # values[1:] -= 1e-5 * logp
 
         returns = self._cal_returns(rewards[:-1], values[:-1], values[-1], pcont[:-1], lambda_=self.disclam)
@@ -167,7 +169,6 @@ class Dreamer(object):
 
     def _image(self, rssmState):
         # rollout the dynamic model forward to generate imagined trajectories 
-        # TODO: check states.requires_grad
         imag_rssmStates, imag_logps = [rssmState], []
         for i in range(self.imag_length):
             _rssm_state = imag_rssmStates[-1]
@@ -175,7 +176,8 @@ class Dreamer(object):
             action = pi_dist.rsample()
             imag_rssmStates.append(self.rssm.onestep_image(_rssm_state, action, nonterminal=True))
             imag_logps.append(pi_dist.log_prob(action).sum(-1, keepdim=True))
-
+        import ipdb; ipdb.set_trace()
+        # returned shape rssm_state: [imag_L+1, B, x_dim], logps: [imag_L, B, 1]
         return self.rssm.stack_rssmState(imag_rssmStates), torch.stack(imag_logps, dim=0).to(self.device)
 
     def update(self, replay_iter):
@@ -190,15 +192,15 @@ class Dreamer(object):
         world_metrics, rssmState = self._update_world_model(next_obs, action, reward, nonterminal)
         metrics.update(world_metrics)
 
-        # set_requires_grad(self.world_param, False)
-        # # latent imagination
-        # imag_rssmStates, imag_logp = self._image(rssmState.detach().flatten())
+        set_requires_grad(self.world_param, False)
+        # latent imagination
+        imag_rssmStates, imag_logp = self._image(rssmState.detach().flatten())
         
-        # metrics.update(self._update_actor_critic(imag_rssmStates, imag_logp))
-        # set_requires_grad(self.world_param, True)
+        metrics.update(self._update_actor_critic(imag_rssmStates, imag_logp))
+        set_requires_grad(self.world_param, True)
 
-        # # soft update the target value function
-        # helper.soft_update_params(self.value, self.value_tar, tau=0.005) # TODO: check whether we should tune the tau
+        # soft update the target value function
+        helper.soft_update_params(self.value, self.value_tar, tau=0.005) # TODO: check whether we should tune the tau
         return metrics
 
     @torch.no_grad()
@@ -214,8 +216,9 @@ class Dreamer(object):
     @torch.no_grad()
     def select_action(self, rssm_state, step, eval_mode=False):
         act_dist = self.actor(rssm_state.state)
-        if eval_mode:
+        if not eval_mode:
             action = act_dist.sample()
+            action += 0.3 * torch.rand_like(action)
         else:
             action = act_dist.mean
 
@@ -230,6 +233,7 @@ class Dreamer(object):
         # temp = self.mppi_kwargs.get('temperature')
         # momentum = self.mppi_kwargs.get('momentum')
 
+        # TODO: add to config
         num_samples = 1000
         plan_horizon = 12
         num_topk = 100

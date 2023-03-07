@@ -95,7 +95,7 @@ class Workspace(object):
             logs_dir = self.work_dir/'logging'
             helper.make_dir(self.work_dir / "logging") 
             self.logger = Logger(logs_dir)
-            # initialize wandb logging if needed # TODO: move it to logger
+
             if self.cfg.use_wandb:
                 wandb.init(project="dreamer", name=f'{self.cfg.env_name}-{self.cfg.algo_name}-{self.cfg.exp_name}-{str(self.cfg.seed)}-{int(time.time())}',
                                         group=f'{self.cfg.env_name}-{self.cfg.algo_name}', 
@@ -149,12 +149,11 @@ class Workspace(object):
                 self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad():
-                    # TODO: implemnt the agent. select_action()
-                    # action = self.agent.select_action(time_step.observation,
-                    #                         self.global_step,
-                    #                         eval_mode=True)
                     rssm_state = self.agent.infer_state(rssm_state, action, time_step.observation)
-                    action = self.agent.plan(rssm_state, self.global_step, eval_mode=True)
+                    action = self.agent.select_action(rssm_state,
+                                            self.global_step,
+                                            eval_mode=True)
+                    # action = self.agent.plan(rssm_state, self.global_step, eval_mode=True)
                     action = action.cpu().numpy()
                     
                 time_step = self.eval_env.step(action)
@@ -239,11 +238,11 @@ class Workspace(object):
             rssm_state = self.agent.infer_state(rssm_state, action, time_step.observation)
             with torch.no_grad():
                 if not seed_until_step(self.global_step):
-                    # action = self.agent.select_action(rssm_state,
-                    #                         self.global_step,
-                    #                         eval_mode=False)
+                    action = self.agent.select_action(rssm_state,
+                                            self.global_step,
+                                            eval_mode=False)
                     
-                    action = self.agent.plan(rssm_state, self.global_step, eval_mode=False)
+                    # action = self.agent.plan(rssm_state, self.global_step, eval_mode=False)
                     action = action.cpu().numpy()
                 else:
                     action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(

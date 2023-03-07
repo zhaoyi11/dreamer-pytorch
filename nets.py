@@ -13,8 +13,10 @@ import utils.helper as h
 
 class RSSMState():
     def __init__(self, deter=0., stoc_mean=0., stoc_std=1., field=None):
+        _keys = ['deter', 'stoc_mean', 'stoc_std', 'stoc', 'state']
         if field is not None: # directly init the RSSMState with field if not None ()
-            self.field = copy.deepcopy(field)
+            self.field = field
+            assert set(self.field.keys()) == set(_keys) 
         else:
             stoc = stoc_mean + stoc_std * torch.rand_like(stoc_std)
             state = torch.cat([deter, stoc], dim=-1)
@@ -121,7 +123,7 @@ class RSSM(nn.Module):
 
         return prior_rssmState, posterior_rssmState
     
-    def rollout(self, init_rssmState, actions, nonterminals, obs_embeddings=None):
+    def rollout(self, init_rssmState, actions, nonterminals=True, obs_embeddings=None):
         """ The inputs/outputs sequences are
             time  : 0 1 2 3
             rssmS : x
@@ -158,17 +160,14 @@ class RSSM(nn.Module):
     def stack_rssmState(self, state_list):
         rssmState = state_list[0]
         keys = rssmState.field.keys() # get keys of the RSSMState
-        data = {k: [] for k in keys}
+        _data = {k: [] for k in keys}
+        field = {}
         # fill data
-        for state in state_list:
-            for k in keys:
-                data[k].append(state.field[k])
-        
-        # TODO: change to init rstate with field
-        # set data to rssmState        
         for k in keys:
-            rssmState.field[k] = torch.stack(data[k], dim=0)
-        return rssmState
+            for state in state_list:
+                _data[k].append(state.field[k])
+            field[k] = torch.stack(_data[k], dim=0)
+        return RSSMState(field=field)
 
     def init_rssmState(self, length=1):
         return RSSMState(torch.zeros(length, self.deter_dim), 
