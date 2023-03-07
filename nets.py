@@ -96,7 +96,6 @@ class RSSM(nn.Module):
             nn.Linear(deter_dim + embedding_dim, mlp_dim), act_fn(),
             nn.Linear(mlp_dim, 2 * stoc_dim))
 
-
     def onestep_image(self, rssmState, action, nonterminal=True):
         _input = self.fc_input(torch.cat([rssmState.stoc * nonterminal, action], dim=-1))
         deter_state = self.rnn(_input, rssmState.deter)
@@ -226,18 +225,20 @@ def encoder():
 class Actor(nn.Module):
     def __init__(self, deter_dim, stoc_dim, mlp_dims, action_dim):
         super().__init__()
-        self.trunk = nn.Sequential(nn.Linear(deter_dim+stoc_dim, mlp_dims[0]),
-                            nn.LayerNorm(mlp_dims[0]), nn.Tanh())
-        self._actor = mlp(mlp_dims[0], mlp_dims[1:], action_dim * 2)
+        # self.trunk = nn.Sequential(nn.Linear(deter_dim+stoc_dim, mlp_dims[0]),
+        #                     nn.LayerNorm(mlp_dims[0]), nn.Tanh())
+        # self._actor = mlp(mlp_dims[0], mlp_dims[1:], action_dim * 2)
+        self._actor = mlp(deter_dim + stoc_dim, mlp_dims, action_dim * 2)
         self.mu_scale = 5
         self.init_std = 5
         self.raw_init_std = np.log(np.exp(self.init_std) - 1)
-        self.min_std=1e-4
-        self.apply(orthogonal_init) 
+        self.min_std = 1e-4
+        # self.apply(orthogonal_init) 
 
     def forward(self, obs):
-        feature = self.trunk(obs)
-        x = self._actor(feature)
+        # feature = self.trunk(obs)
+        # x = self._actor(feature)
+        x = self._actor(obs)
         mu, std = torch.chunk(x, 2, dim=-1)
         # bound the action to [-mu_scale, mu_scale] --> to avoid numerical instabilities.  For computing log-probabilities, we need to invert the tanh and this becomes difficult in highly saturated regions.
         mu = self.mu_scale * torch.tanh(mu / self.mu_scale) 

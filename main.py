@@ -33,11 +33,10 @@ def set_seed(seed):
 
 class Workspace(object):
     def __init__(self, cfg):
-        self.work_dir = Path.cwd() / __LOGS__ / cfg.algo_name / cfg.exp_name / cfg.env_name / str(cfg.seed) 
-
         if cfg.seed < 0: cfg.seed = random.randint(0, 10000) # generate random seed if cfg.seed<0 (-1 by default)
         set_seed(cfg.seed)
-
+        self.work_dir = Path.cwd() / __LOGS__ / cfg.algo_name / cfg.exp_name / cfg.env_name / str(cfg.seed) 
+        
         # fill some cfg value on the fly #
         cfg.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         cfg.episode_length = cfg.episode_length // cfg.action_repeat

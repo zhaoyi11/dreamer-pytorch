@@ -54,10 +54,12 @@ class Dreamer(object):
         self.rssm = nets.RSSM(deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim).to(self.device)
         self.reward_fn = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim], 1).to(self.device)
 
-        self.value = nets.Value(deter_dim, stoc_dim, mlp_dims=[mlp_dim, mlp_dim]).to(self.device)
-        self.value_tar = nets.Value(deter_dim, stoc_dim, mlp_dims=[mlp_dim, mlp_dim]).to(self.device)
-
-        self.actor = nets.Actor(deter_dim, stoc_dim, [mlp_dim, mlp_dim], action_dim).to(self.device)
+        # self.value = nets.Value(deter_dim, stoc_dim, mlp_dims=[mlp_dim, mlp_dim]).to(self.device)
+        # self.value_tar = nets.Value(deter_dim, stoc_dim, mlp_dims=[mlp_dim, mlp_dim]).to(self.device)
+        self.value = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim, mlp_dim], 1).to(self.device)
+        self.value_tar = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim, mlp_dim], 1).to(self.device)
+        
+        self.actor = nets.Actor(deter_dim, stoc_dim, [mlp_dim, mlp_dim, mlp_dim], action_dim).to(self.device)
 
         # init optimizers
         self.world_param = chain(self.rssm.parameters(), self.encoder.parameters(),
