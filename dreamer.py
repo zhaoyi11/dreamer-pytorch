@@ -176,7 +176,6 @@ class Dreamer(object):
             action = pi_dist.rsample()
             imag_rssmStates.append(self.rssm.onestep_image(_rssm_state, action, nonterminal=True))
             imag_logps.append(pi_dist.log_prob(action).sum(-1, keepdim=True))
-        import ipdb; ipdb.set_trace()
         # returned shape rssm_state: [imag_L+1, B, x_dim], logps: [imag_L, B, 1]
         return self.rssm.stack_rssmState(imag_rssmStates), torch.stack(imag_logps, dim=0).to(self.device)
 

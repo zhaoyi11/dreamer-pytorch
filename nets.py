@@ -12,53 +12,51 @@ import numpy as np
 import utils.helper as h
 
 class RSSMState():
-    def __init__(self, deter=0., stoc_mean=0., stoc_std=1., field=None):
-        _keys = ['deter', 'stoc_mean', 'stoc_std', 'stoc', 'state']
-        if field is not None: # directly init the RSSMState with field if not None ()
-            self.field = field
-            assert set(self.field.keys()) == set(_keys) 
-        else:
+    def __init__(self, deter, stoc_mean, stoc_std, stoc=None, state=None):
+        if stoc is None:
             stoc = stoc_mean + stoc_std * torch.rand_like(stoc_std)
+        if state is None:
             state = torch.cat([deter, stoc], dim=-1)
-            self.field = {'deter': deter, 'stoc_mean': stoc_mean, 
+        
+        self.field = {'deter': deter, 'stoc_mean': stoc_mean, 
                         'stoc_std': stoc_std, 'stoc': stoc, 'state': state}
 
     def detach(self,):
         field = {}
         for k, v in self.field.items():
             field[k] = v.detach()
-        return RSSMState(field=field)
+        return RSSMState(**field)
 
     def flatten(self,):
         "The returned shape is [B*N, x_dim]."
         field = {}
         for k, v in self.field.items():
             field[k] = v.reshape(-1, v.shape[-1])
-        return RSSMState(field=field)
+        return RSSMState(**field)
     
     def suqeeze(self, dim=0):
         field = {}
         for k, v in self.field.items():
             field[k] = v.squeeze(dim)
-        return RSSMState(field=field)
+        return RSSMState(**field)
 
     def unsqueeze(self, dim=0):
         field = {}
         for k, v in self.field.items():
             self.field[k] = v.unsqueeze(dim)
-        return RSSMState(field=field)
+        return RSSMState(**field)
 
     def repeat(self, *size):
         field = {}
         for k, v in self.field.items():
             field[k] = v.repeat(*size)
-        return RSSMState(field=field)
+        return RSSMState(**field)
     
     def to(self, device='cpu', dtype=torch.float32):
         field = {}
         for k, v in self.field.items():
             field[k] = v.to(device=device, dtype=dtype)
-        return RSSMState(field=field)
+        return RSSMState(**field)
 
     @property
     def deter(self):
@@ -167,7 +165,7 @@ class RSSM(nn.Module):
             for state in state_list:
                 _data[k].append(state.field[k])
             field[k] = torch.stack(_data[k], dim=0)
-        return RSSMState(field=field)
+        return RSSMState(**field)
 
     def init_rssmState(self, length=1):
         return RSSMState(torch.zeros(length, self.deter_dim), 
