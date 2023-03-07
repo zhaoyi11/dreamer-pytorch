@@ -73,8 +73,9 @@ class RSSMState():
     @property
     def dist(self):
         mean, std = self.field['stoc_mean'], self.field['stoc_std']
-        return td.independent.Independent(Normal(mean, std), 1)
-
+        # return td.independent.Independent(Normal(mean, std), 1)
+        # TODO: check whether the independent is used
+        return Normal(mean, std)
 
 class RSSM(nn.Module):
     def __init__(self, deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim, act_fn=nn.ELU, min_std_dev=0.1):
@@ -83,25 +84,22 @@ class RSSM(nn.Module):
         self.deter_dim, self.stoc_dim, self.embedding_dim = deter_dim, stoc_dim, embedding_dim
 
         self.fc_input = nn.Sequential(
-            nn.Linear(stoc_dim + action_dim, deter_dim), act_fn()
-        )
+            nn.Linear(stoc_dim + action_dim, deter_dim), act_fn())
         
         self.rnn = nn.GRUCell(deter_dim, deter_dim)
 
         self.fc_prior = nn.Sequential(
             nn.Linear(deter_dim, mlp_dim), act_fn(),
-            nn.Linear(mlp_dim, 2 * stoc_dim)
-        )
+            nn.Linear(mlp_dim, 2 * stoc_dim))
 
         self.fc_posterior = nn.Sequential(
             nn.Linear(deter_dim + embedding_dim, mlp_dim), act_fn(),
-            nn.Linear(mlp_dim, 2 * stoc_dim)
-        )
+            nn.Linear(mlp_dim, 2 * stoc_dim))
 
 
     def onestep_image(self, rssmState, action, nonterminal=True):
         _input = self.fc_input(torch.cat([rssmState.stoc * nonterminal, action], dim=-1))
-        deter_state = self.rnn(_input, rssmState.deter * nonterminal)
+        deter_state = self.rnn(_input, rssmState.deter)
 
         prior_mu, prior_std = torch.chunk(self.fc_prior(deter_state), 2, dim=-1)
         prior_std = F.softplus(prior_std) + self.min_std_dev
@@ -142,9 +140,15 @@ class RSSM(nn.Module):
                 prior_rssmState, posterior_rssmState = self.onestep_observe(obs_embeddings[t], rssmState, action, nonterminal)
                 prior.append(prior_rssmState)
                 posterior.append(posterior_rssmState)
+    
+                # update rssmState
+                rssmState = posterior_rssmState
             else:
                 prior_rssmState = self.onestep_image(rssmState, action, nonterminal)
                 prior.append(prior_rssmState)
+
+                # update rssmState
+                rssmState = prior_rssmState
         
         if obs_embeddings is not None:
             return self.stack_rssmState(prior), self.stack_rssmState(posterior)
@@ -160,6 +164,7 @@ class RSSM(nn.Module):
             for k in keys:
                 data[k].append(state.field[k])
         
+        # TODO: change to init rstate with field
         # set data to rssmState        
         for k in keys:
             rssmState.field[k] = torch.stack(data[k], dim=0)

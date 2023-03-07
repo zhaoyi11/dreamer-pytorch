@@ -151,7 +151,7 @@ class ReplayBuffer(IterableDataset):
         # add +1 for the first dummy transition
         idx = np.random.randint(0, episode_len(episode) - self._chunk_size + 1) + 1
 
-        obs = episode['observation'][idx: idx+self._chunk_size]
+        next_obs = episode['observation'][idx: idx+self._chunk_size]
         action = episode['action'][idx: idx+self._chunk_size]
         reward = episode['reward'][idx: idx+self._chunk_size]
         nonterminal = episode['discount'][idx: idx+self._chunk_size]
@@ -165,7 +165,7 @@ class ReplayBuffer(IterableDataset):
         #     discounts.append(episode['discount'][_idx])
         # next_obses, acts, rews, discounts = np.stack(next_obses, axis=0), np.stack(acts, axis=0), np.stack(rews, axis=0), np.stack(discounts, axis=0)
 
-        return (obs, action, reward, nonterminal)
+        return (next_obs, action, reward, nonterminal)
 
     def __iter__(self):
         while True:

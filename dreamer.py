@@ -81,7 +81,7 @@ class Dreamer(object):
     def _update_world_model(self, obses, actions, rewards, nonterminals):
         """ The inputs sequences are: a, r, o | a, r, o| a, r, o"""
         L, B, x_dim = obses.shape
-        init_rssmState = self.rssm.init_rssmState(L).to(device=self.device)
+        init_rssmState = self.rssm.init_rssmState(B).to(device=self.device)
         obs_embeddings = self.encoder(obses) # TODO: might a bug here.
         prior_rssmState, posterior_rssmState = self.rssm.rollout(init_rssmState, actions, nonterminals, obs_embeddings)
         
@@ -90,14 +90,17 @@ class Dreamer(object):
                                         obses, reduction='none').sum(dim=2).mean(dim=(0, 1))
         reward_loss = F.mse_loss(self.reward_fn(posterior_rssmState.state), rewards, reduction='none').sum(dim=2).mean(dim=(0, 1))
         
-        kl_dyn = torch.max(
-            kl_divergence(prior_rssmState.detach().dist, posterior_rssmState.dist),
-            self.free_nats).mean()
+        # kl_dyn = torch.max(
+        #     kl_divergence(prior_rssmState.detach().dist, posterior_rssmState.dist),
+        #     self.free_nats).mean()
         
-        kl_rep = torch.max(
-            kl_divergence(prior_rssmState.dist, posterior_rssmState.detach().dist),
-            self.free_nats).mean()
+        # kl_rep = torch.max(
+        #     kl_divergence(prior_rssmState.dist, posterior_rssmState.detach().dist),
+        #     self.free_nats).mean()
 
+        # TODO: check kl, detach() 
+        kl_dyn = torch.max(kl_divergence(prior_rssmState.dist, posterior_rssmState.dist).sum(-1), self.free_nats).mean()
+        kl_rep = 0.
         loss = reconstruction_loss + reward_loss + kl_dyn + kl_rep
 
         self.world_optim.zero_grad()
@@ -105,7 +108,7 @@ class Dreamer(object):
         nn.utils.clip_grad_norm_(self.world_param, self.grad_clip_norm, norm_type=2)
         self.world_optim.step()
 
-        return {'world_loss': loss.item()}, posterior_rssmState
+        return {'world_loss': loss.item(), }, posterior_rssmState
 
     def _update_actor_critic(self, rssmState, logp):
         set_requires_grad(self.value.parameters(), False)
@@ -175,17 +178,16 @@ class Dreamer(object):
 
         return self.rssm.stack_rssmState(imag_rssmStates), torch.stack(imag_logps, dim=0).to(self.device)
 
-
     def update(self, replay_iter):
         batch = next(replay_iter)
-        obs, action, reward, nonterminal = to_torch(batch, self.device, dtype=torch.float32)
+        next_obs, action, reward, nonterminal = to_torch(batch, self.device, dtype=torch.float32)
         # swap the batch and horizon dimension -> [H, B, _shape]
-        obs, action, reward, nonterminal = torch.swapaxes(obs, 0, 1), torch.swapaxes(action, 0, 1),\
+        next_obs, action, reward, nonterminal = torch.swapaxes(next_obs, 0, 1), torch.swapaxes(action, 0, 1),\
                                                 torch.swapaxes(reward, 0, 1),\
                                                 torch.swapaxes(nonterminal, 0, 1)
 
         metrics = {}
-        world_metrics, rssmState = self._update_world_model(obs, action, reward, nonterminal)
+        world_metrics, rssmState = self._update_world_model(next_obs, action, reward, nonterminal)
         metrics.update(world_metrics)
 
         # set_requires_grad(self.world_param, False)
@@ -199,7 +201,7 @@ class Dreamer(object):
         # helper.soft_update_params(self.value, self.value_tar, tau=0.005) # TODO: check whether we should tune the tau
         return metrics
 
-
+    @torch.no_grad()
     def infer_state(self, rssmState, action, observation):
         if isinstance(observation, np.ndarray):
             observation = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)

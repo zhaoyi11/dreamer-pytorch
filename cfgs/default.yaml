@@ -44,7 +44,7 @@ cnn_active_fn: relu
 mlp_active_fn: elu
 
 expl_noise: 0.3
-free_nats: 3 # or 1 TODO:
+free_nats: 1 # or 3 TODO:
 
 coef_pred: 1
 coef_dyn: 0.5
