@@ -178,9 +178,9 @@ class Dreamer(object):
         imag_rssmStates, imag_logps = [rssmState], []
         for i in range(self.imag_length):
             _rssm_state = imag_rssmStates[-1]
-            pi_dist = self.actor(_rssm_state.state)
+            pi_dist = self.actor(_rssm_state.state.detach()) # notice that the state is detached
             action = pi_dist.rsample()
-            imag_rssmStates.append(self.rssm.onestep_image(_rssm_state.detach(), # notice that the state is detached
+            imag_rssmStates.append(self.rssm.onestep_image(_rssm_state, 
                                                          action, nonterminal=True))
             imag_logps.append(pi_dist.log_prob(action))
         # returned shape rssm_state: [imag_L+1, B, x_dim], logps: [imag_L, B] # TODO: be careful of the dimension.
