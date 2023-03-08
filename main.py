@@ -36,7 +36,7 @@ class Workspace(object):
         if cfg.seed < 0: cfg.seed = random.randint(0, 10000) # generate random seed if cfg.seed<0 (-1 by default)
         set_seed(cfg.seed)
         self.work_dir = Path.cwd() / __LOGS__ / cfg.algo_name / cfg.exp_name / cfg.env_name / str(cfg.seed) 
-        
+
         # fill some cfg value on the fly #
         cfg.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         cfg.episode_length = cfg.episode_length // cfg.action_repeat
@@ -49,6 +49,7 @@ class Workspace(object):
 
         dreamer_kwargs = {
             'modality': self.cfg.modality,
+            'algo_name': self.cfg.algo_name,
             'deter_dim': self.cfg.deter_dim,
             'stoc_dim': self.cfg.stoc_dim,
             'mlp_dim': self.cfg.mlp_dim, 
@@ -149,10 +150,12 @@ class Workspace(object):
             while not time_step.last():
                 with torch.no_grad():
                     rssm_state = self.agent.infer_state(rssm_state, action, time_step.observation)
-                    action = self.agent.select_action(rssm_state,
+                    if self.cfg.algo_name == "planet":
+                        action = self.agent.plan(rssm_state, self.global_step, eval_mode=True)
+                    else:
+                        action = self.agent.select_action(rssm_state,
                                             self.global_step,
                                             eval_mode=True)
-                    # action = self.agent.plan(rssm_state, self.global_step, eval_mode=True)
                     action = action.cpu().numpy()
                     
                 time_step = self.eval_env.step(action)
@@ -237,11 +240,12 @@ class Workspace(object):
             rssm_state = self.agent.infer_state(rssm_state, action, time_step.observation)
             with torch.no_grad():
                 if not seed_until_step(self.global_step):
-                    action = self.agent.select_action(rssm_state,
-                                            self.global_step,
-                                            eval_mode=False)
-                    
-                    # action = self.agent.plan(rssm_state, self.global_step, eval_mode=False)
+                    if self.cfg.algo_name == "planet":    
+                        action = self.agent.plan(rssm_state, self.global_step, eval_mode=False)
+                    else: 
+                        action = self.agent.select_action(rssm_state,
+                                                self.global_step,
+                                                eval_mode=False)
                     action = action.cpu().numpy()
                 else:
                     action = np.random.uniform(-1, 1, self.train_env.action_spec().shape).astype(

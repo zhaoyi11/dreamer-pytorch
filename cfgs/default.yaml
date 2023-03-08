@@ -9,7 +9,7 @@ defaults:
 seed: -1 # generate random seed if seed == -1 (by defalut)
 
 env_name: ${env_name}
-algo_name: tcrl
+algo_name: dreamerv1 # [planet, dreamerv1, dreamerv2]
 exp_name: default
 modality: 
 # training
@@ -21,7 +21,7 @@ action_repeat: 2
 
 episode_length: 1000
 train_episode: ${train_episode}
-random_episode: 10
+random_episode: 5
 eval_interval: 25
 eval_episode: 10
 update_every_episode: 100
@@ -32,9 +32,9 @@ imag_length: 15
 nstep: 1
 
 embedding_dim: 1024
-mlp_dim: 300
+mlp_dim: 400
 deter_dim: 200
-stoc_dim: 50
+stoc_dim: 30
 
 # replay buffer
 replay_buffer_size: 1e6
@@ -44,7 +44,7 @@ cnn_active_fn: relu
 mlp_active_fn: elu
 
 expl_noise: 0.3
-free_nats: 1 # or 3 TODO:
+free_nats: 3 # or 1 TODO:
 
 coef_pred: 1
 coef_dyn: 0.5

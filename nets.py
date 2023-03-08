@@ -73,9 +73,9 @@ class RSSMState():
     @property
     def dist(self):
         mean, std = self.field['stoc_mean'], self.field['stoc_std']
-        # return td.independent.Independent(Normal(mean, std), 1)
-        # TODO: check whether the independent is used
-        return Normal(mean, std)
+        # the event_shape equals the last dimension, and the rest will be the batch shape
+        # for example, the mean has shape [20, 30, 50], then the even_shape is [50], and the batch_shape is [20, 30]
+        return td.independent.Independent(Normal(mean, std), 1)
 
 class RSSM(nn.Module):
     def __init__(self, deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim, act_fn=nn.ELU, min_std_dev=0.1):
@@ -120,7 +120,7 @@ class RSSM(nn.Module):
 
         return prior_rssmState, posterior_rssmState
     
-    def rollout(self, init_rssmState, actions, nonterminals=True, obs_embeddings=None):
+    def rollout(self, init_rssmState, actions, nonterminals, obs_embeddings=None):
         """ The inputs/outputs sequences are
             time  : 0 1 2 3
             rssmS : x
@@ -166,10 +166,10 @@ class RSSM(nn.Module):
             field[k] = torch.stack(_data[k], dim=0)
         return RSSMState(**field)
 
-    def init_rssmState(self, length=1):
-        return RSSMState(torch.zeros(length, self.deter_dim), 
-                        torch.zeros(length, self.stoc_dim),
-                        torch.ones(length, self.stoc_dim))
+    def init_rssmState(self, batch_size=1):
+        return RSSMState(torch.zeros(batch_size, self.deter_dim, dtype=torch.float32), 
+                        torch.zeros(batch_size, self.stoc_dim, dtype=torch.float32),
+                        torch.zeros(batch_size, self.stoc_dim, dtype=torch.float32))
 
 def mlp(in_dim, mlp_dims: List[int], out_dim, act_fn=nn.ELU, out_act=nn.Identity):
     """Returns an MLP."""
@@ -243,7 +243,7 @@ class Actor(nn.Module):
         # bound the action to [-mu_scale, mu_scale] --> to avoid numerical instabilities.  For computing log-probabilities, we need to invert the tanh and this becomes difficult in highly saturated regions.
         mu = self.mu_scale * torch.tanh(mu / self.mu_scale) 
         std = F.softplus(std + self.raw_init_std) + self.min_std
-        return h.SquashedNormal(mu, std)
+        return td.independent.Independent(h.SquashedNormal(mu, std), 1)
     
 
 class Value(nn.Module):

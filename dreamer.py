@@ -32,6 +32,7 @@ def to_torch(xs, device, dtype=torch.float32):
 class Dreamer(object):
     def __init__(self,
                 modality,
+                algo_name,
                 deter_dim, stoc_dim, mlp_dim, embedding_dim,
                 obs_shape, action_dim, 
                 world_lr, actor_lr, value_lr, grad_clip_norm,
@@ -68,8 +69,8 @@ class Dreamer(object):
         self.actor_optim = optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.value_optim = optim.Adam(self.value.parameters(), lr=value_lr)
     
-        # free nats
-        self.free_nats = torch.full((1,), free_nats, dtype=torch.float32, device=self.device)
+        self.free_nats = torch.tensor(free_nats, dtype=torch.float32, device=self.device)
+        # self.free_nats = free_nats
 
         self.coef_pred, self.coef_dyn, self.coef_rep = coef_pred, coef_dyn, coef_rep
         self.grad_clip_norm = grad_clip_norm
@@ -80,6 +81,8 @@ class Dreamer(object):
         self.mppi_kwargs = mppi_kwargs
         self.action_dim = action_dim
 
+        self.algo_name = algo_name
+
     def _update_world_model(self, obses, actions, rewards, nonterminals):
         """ The inputs sequences are: a, r, o | a, r, o| a, r, o"""
         L, B, x_dim = obses.shape
@@ -88,6 +91,7 @@ class Dreamer(object):
         prior_rssmState, posterior_rssmState = self.rssm.rollout(init_rssmState, actions, nonterminals, obs_embeddings)
         
         # TODO: might be a bug in the self.decoder() -- the input has one additional dim
+        # TODO: change to log likelihood
         reconstruction_loss = F.mse_loss(self.decoder(posterior_rssmState.state), 
                                         obses, reduction='none').sum(dim=2).mean(dim=(0, 1))
         reward_loss = F.mse_loss(self.reward_fn(posterior_rssmState.state), rewards, reduction='none').sum(dim=2).mean(dim=(0, 1))
@@ -101,7 +105,7 @@ class Dreamer(object):
         #     self.free_nats).mean()
 
         # TODO: check kl, detach() 
-        kl_dyn = torch.max(kl_divergence(prior_rssmState.dist, posterior_rssmState.dist).sum(-1), self.free_nats).mean()
+        kl_dyn = torch.maximum(kl_divergence(prior_rssmState.dist, posterior_rssmState.dist).mean(), self.free_nats)
         kl_rep = 0.
         loss = reconstruction_loss + reward_loss + kl_dyn + kl_rep
 
@@ -121,7 +125,7 @@ class Dreamer(object):
         
         pcont = self.discount * torch.ones_like(rewards).detach()
 
-        # TODO: add logp
+        # TODO: add logp -> check the shape of the logp [H, B]
         # values[1:] -= 1e-5 * logp
 
         returns = self._cal_returns(rewards[:-1], values[:-1], values[-1], pcont[:-1], lambda_=self.disclam)
@@ -174,11 +178,12 @@ class Dreamer(object):
         imag_rssmStates, imag_logps = [rssmState], []
         for i in range(self.imag_length):
             _rssm_state = imag_rssmStates[-1]
-            pi_dist = self.actor(_rssm_state.state) # TODO: decide the api
+            pi_dist = self.actor(_rssm_state.state)
             action = pi_dist.rsample()
-            imag_rssmStates.append(self.rssm.onestep_image(_rssm_state, action, nonterminal=True))
-            imag_logps.append(pi_dist.log_prob(action).sum(-1, keepdim=True))
-        # returned shape rssm_state: [imag_L+1, B, x_dim], logps: [imag_L, B, 1]
+            imag_rssmStates.append(self.rssm.onestep_image(_rssm_state.detach(), # notice that the state is detached
+                                                         action, nonterminal=True))
+            imag_logps.append(pi_dist.log_prob(action))
+        # returned shape rssm_state: [imag_L+1, B, x_dim], logps: [imag_L, B] # TODO: be careful of the dimension.
         return self.rssm.stack_rssmState(imag_rssmStates), torch.stack(imag_logps, dim=0).to(self.device)
 
     def update(self, replay_iter):
@@ -193,15 +198,16 @@ class Dreamer(object):
         world_metrics, rssmState = self._update_world_model(next_obs, action, reward, nonterminal)
         metrics.update(world_metrics)
 
-        set_requires_grad(self.world_param, False)
-        # latent imagination
-        imag_rssmStates, imag_logp = self._image(rssmState.detach().flatten())
-        
-        metrics.update(self._update_actor_critic(imag_rssmStates, imag_logp))
-        set_requires_grad(self.world_param, True)
+        if self.algo_name in ['dreamerv1', 'dreamerv2']:
+            set_requires_grad(self.world_param, False)
+            # latent imagination
+            imag_rssmStates, imag_logp = self._image(rssmState.detach().flatten())
+            
+            metrics.update(self._update_actor_critic(imag_rssmStates, imag_logp))
+            set_requires_grad(self.world_param, True)
 
-        # soft update the target value function
-        helper.soft_update_params(self.value, self.value_tar, tau=0.005) # TODO: check whether we should tune the tau
+            # soft update the target value function
+            helper.soft_update_params(self.value, self.value_tar, tau=0.005) # TODO: check whether we should tune the tau
         return metrics
 
     @torch.no_grad()
@@ -281,7 +287,6 @@ class Dreamer(object):
         if not eval_mode:
             output = output + action_noise * torch.randn_like(output)
         return output[0] # [action_dim]
-
 
     def save(self, fp):
         pass
