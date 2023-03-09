@@ -176,11 +176,11 @@ class Workspace(object):
             if self.video_recorder is not None:
                 self.video_recorder.save(f'{self.global_frame}.mp4')
 
-        with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
-            log('episode_reward', total_reward / episode)
-            log('episode_length', step * self.cfg.action_repeat / episode)
-            log('episode', self.global_episode)
-            log('step', self.global_step)
+        return {'episode_reward': total_reward / episode,
+                'episode_length': step * self.cfg.action_repeat / episode,
+                'episode': self.global_episode,
+                'step': self.global_step}
+    
 
     def train(self):
         # predicates
@@ -197,34 +197,40 @@ class Workspace(object):
             self.video_recorder.init(time_step.observation)
         metrics = None
         while train_until_step(self.global_step):
-            if time_step.last(): # reset and logging after one trajectory
+            if time_step.last(): # update, reset and logging after one trajectory
                 self._global_episode += 1
                 
                 # try to update the agent
                 if not seed_until_step(self.global_step):
                     for i in range(100): # TODO: put 100 to config file
-                        metrics = self.agent.update(self.replay_iter)
-                    self.logger.log_metrics(metrics, self.global_frame, ty='train')      
-
-                if self.video_recorder is not None:
-                    self.video_recorder.save(f'{self.global_frame}.mp4')
+                        metrics = self.agent.update(self.replay_iter)    
 
                 # wait until all the metrics schema is populated
                 if metrics is not None:
                     # log stats
                     elapsed_time, total_time = self.timer.reset()
                     episode_frame = episode_step * self.cfg.action_repeat
+
+                    metrics.update({'fps': episode_frame / elapsed_time,
+                                    'total_time': total_time,
+                                    'episode_reward': episode_reward,
+                                    'episode_length': episode_frame,
+                                    'episode': self.global_episode,
+                                    'buffer_size': len(self.replay_storage),
+                                    'step': self.global_step,
+                                    'env_step': self.global_frame,
+                    })
+
                     with self.logger.log_and_dump_ctx(self.global_frame,
                                                       ty='train') as log:
-                        log('fps', episode_frame / elapsed_time)
-                        log('total_time', total_time)
-                        log('episode_reward', episode_reward)
-                        log('episode_length', episode_frame)
-                        log('episode', self.global_episode)
-                        log('buffer_size', len(self.replay_storage))
-                        log('step', self.global_step)
-                print(f'{self.global_episode}: {episode_reward}')
-                
+                        log.log_metrics(metrics)
+                    
+                    if self.cfg.use_wandb: wandb.log({'train/': metrics}, step=self.global_frame)
+
+
+                if self.video_recorder is not None:
+                    self.video_recorder.save(f'{self.global_frame}.mp4')    
+
                 # reset env
                 time_step = self.train_env.reset()
                 rstate, action = self.agent.reset() # init the dummy rstate and action
@@ -239,9 +245,15 @@ class Workspace(object):
 
             # try to evaluate
             if eval_every_step(self.global_step):
-                self.logger.log('eval_total_time', self.timer.total_time(),
-                                self.global_frame)
-                self.eval()
+                eval_metrics = {'eval_total_time': self.timer.total_time()}
+                eval_metrics.update(self.eval())
+                
+                # logging
+                with self.logger.log_and_dump_ctx(self.global_frame, ty='eval') as log:
+                    log.log_metrics(eval_metrics)
+                
+                if self.cfg.use_wandb:
+                    wandb.log({'eval/': eval_metrics}, step=self.global_frame)
 
             # sample action
             rstate = self.agent.infer_state(rstate, action, time_step.observation)

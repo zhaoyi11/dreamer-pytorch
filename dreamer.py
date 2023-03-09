@@ -116,10 +116,17 @@ class Dreamer(object):
 
         self.world_optim.zero_grad()
         loss.backward()
-        nn.utils.clip_grad_norm_(self.world_param, self.grad_clip_norm, norm_type=2)
+        grad_norm = nn.utils.clip_grad_norm_(self.world_param, self.grad_clip_norm, norm_type=2)
         self.world_optim.step()
 
-        return {'world_loss': loss.item(), }, pos_rstate
+        return {'world_loss': loss.item(),
+                'rec_loss': rec_loss.item(), 
+                'reward_loss': reward_loss.item(),
+                'state_mean': pos_rstate.state.mean().item(),
+                'state_max': pos_rstate.state.max().item(),
+                'state_min': pos_rstate.state.min().item(),
+                'world_grad_norm': grad_norm.item()},\
+                pos_rstate
 
     def _update_actor_critic(self, rstate, logp):
         set_requires_grad(self.value.parameters(), False)
@@ -150,7 +157,9 @@ class Dreamer(object):
         self.value_optim.zero_grad()
         value_loss.backward()
         self.value_optim.step()
-        return {}
+        return {'value': pred_v.mean().item(), 
+                'actor_loss':actor_loss.item(), 
+                'value_loss':value_loss.item()}
     
     def _cal_returns(self, reward, value, bootstrap, pcont, lambda_):
         """
