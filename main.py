@@ -143,17 +143,17 @@ class Workspace(object):
 
         while eval_until_episode(episode):
             time_step = self.eval_env.reset()
-            rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device),\
+            rstate, action = self.agent.rssm.init_rstate().to(self.cfg.device),\
                                  np.zeros(self.cfg.action_shape)
             if self.video_recorder is not None:
                 self.video_recorder.init(self.eval_env, enabled=(episode == 0))
             while not time_step.last():
                 with torch.no_grad():
-                    rssm_state = self.agent.infer_state(rssm_state, action, time_step.observation)
+                    rstate = self.agent.infer_state(rstate, action, time_step.observation)
                     if self.cfg.algo_name == "planet":
-                        action = self.agent.plan(rssm_state, self.global_step, eval_mode=True)
+                        action = self.agent.plan(rstate, self.global_step, eval_mode=True)
                     else:
-                        action = self.agent.select_action(rssm_state,
+                        action = self.agent.select_action(rstate,
                                             self.global_step,
                                             eval_mode=True)
                     action = action.cpu().numpy()
@@ -182,8 +182,8 @@ class Workspace(object):
 
         episode_step, episode_reward = 0, 0
         time_step = self.train_env.reset()
-        rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device),\
-                             np.zeros(self.cfg.action_shape) # the dummy rssm_state and action are used to init the rssm state
+        rstate, action = self.agent.reset() # init the dummy rstate and action 
+
         self.replay_storage.add(time_step)
         if self.video_recorder is not None:
             self.video_recorder.init(time_step.observation)
@@ -219,8 +219,7 @@ class Workspace(object):
                 
                 # reset env
                 time_step = self.train_env.reset()
-                rssm_state, action = self.agent.rssm.init_rssmState().to(self.cfg.device), \
-                                    np.zeros(self.cfg.action_shape) # the dummy rssm_state and action are used to init the rssm state
+                rstate, action = self.agent.reset() # init the dummy rstate and action
                 self.replay_storage.add(time_step)
                 if self.video_recorder is not None:
                     self.video_recorder.init(time_step.observation)
@@ -237,13 +236,13 @@ class Workspace(object):
                 self.eval()
 
             # sample action
-            rssm_state = self.agent.infer_state(rssm_state, action, time_step.observation)
+            rstate = self.agent.infer_state(rstate, action, time_step.observation)
             with torch.no_grad():
                 if not seed_until_step(self.global_step):
                     if self.cfg.algo_name == "planet":    
-                        action = self.agent.plan(rssm_state, self.global_step, eval_mode=False)
+                        action = self.agent.plan(rstate, self.global_step, eval_mode=False)
                     else: 
-                        action = self.agent.select_action(rssm_state,
+                        action = self.agent.select_action(rstate,
                                                 self.global_step,
                                                 eval_mode=False)
                     action = action.cpu().numpy()

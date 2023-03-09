@@ -96,31 +96,34 @@ class RSSM(nn.Module):
             nn.Linear(deter_dim + embedding_dim, mlp_dim), act_fn(),
             nn.Linear(mlp_dim, 2 * stoc_dim))
 
-    def onestep_image(self, rssmState, action, nonterminal=True):
-        _input = self.fc_input(torch.cat([rssmState.stoc * nonterminal, action], dim=-1))
-        deter_state = self.rnn(_input, rssmState.deter)
+    def image_step(self, prev_rstate, action, nonterminal=True):
+        """
+            [rstate] -> prior_rstate
+            [action] /
+        """
+        _input = self.fc_input(torch.cat([prev_rstate.stoc * nonterminal, action], dim=-1))
+        deter_state = self.rnn(_input, prev_rstate.deter)
 
         prior_mu, prior_std = torch.chunk(self.fc_prior(deter_state), 2, dim=-1)
         prior_std = F.softplus(prior_std) + self.min_std_dev
 
-        prior_rssmState = RSSMState(deter_state, prior_mu, prior_std)
+        prior_rstate = RSSMState(deter_state, prior_mu, prior_std)
 
-        return prior_rssmState
-
-    def onestep_observe(self, obs_embedding, rssmState, action, nonterminal=True):
-        prior_rssmState = self.onestep_image(rssmState, action, nonterminal)
-        deter_state = prior_rssmState.deter
+        return prior_rstate
+    
+    def obs_step(self, obs_embedding, prev_rstate, action, nonterminal=True):
+        prior_rstate = self.image_step(prev_rstate, action, nonterminal)
+        deter_state = prior_rstate.deter
         
         _input = torch.cat([deter_state, obs_embedding], dim=-1)
 
-        posterior_mu, posterior_std = torch.chunk(self.fc_posterior(_input), 2, dim=-1)
-        posterior_std = F.softplus(posterior_std) + self.min_std_dev
+        pos_mu, pos_std = torch.chunk(self.fc_posterior(_input), 2, dim=-1)
+        pos_std = F.softplus(pos_std) + self.min_std_dev
 
-        posterior_rssmState = RSSMState(deter_state, posterior_mu, posterior_std)
-
-        return prior_rssmState, posterior_rssmState
+        pos_rstate = RSSMState(deter_state, pos_mu, pos_std)
+        return prior_rstate, pos_rstate
     
-    def rollout(self, init_rssmState, actions, nonterminals, obs_embeddings=None):
+    def rollout(self, init_rstate, actions, nonterminals, obs_embeddings=None):
         """ The inputs/outputs sequences are
             time  : 0 1 2 3
             rssmS : x
@@ -133,40 +136,40 @@ class RSSM(nn.Module):
         if obs_embeddings is not None:
             posterior = []
 
-        rssmState = init_rssmState
+        rstate = init_rstate
         for t, (action, nonterminal) in enumerate(zip(actions, nonterminals)):
             if obs_embeddings is not None:
-                prior_rssmState, posterior_rssmState = self.onestep_observe(obs_embeddings[t], rssmState, action, nonterminal)
-                prior.append(prior_rssmState)
-                posterior.append(posterior_rssmState)
+                prior_rstate, pos_rstate = self.obs_step(obs_embeddings[t], rstate, action, nonterminal)
+                prior.append(prior_rstate)
+                posterior.append(pos_rstate)
     
-                # update rssmState
-                rssmState = posterior_rssmState
+                # update rstate
+                rstate = pos_rstate
             else:
-                prior_rssmState = self.onestep_image(rssmState, action, nonterminal)
-                prior.append(prior_rssmState)
+                prior_rstate = self.image_step(rstate, action, nonterminal)
+                prior.append(prior_rstate)
 
-                # update rssmState
-                rssmState = prior_rssmState
+                # update rstate
+                rstate = prior_rstate
         
         if obs_embeddings is not None:
-            return self.stack_rssmState(prior), self.stack_rssmState(posterior)
+            return self.stack_rstate(prior), self.stack_rstate(posterior)
         else:
-            return self.stack_rssmState(prior)
+            return self.stack_rstate(prior)
     
-    def stack_rssmState(self, state_list):
-        rssmState = state_list[0]
-        keys = rssmState.field.keys() # get keys of the RSSMState
+    def stack_rstate(self, rstate_list):
+        rstate = rstate_list[0]
+        keys = rstate.field.keys() # get keys of the RSSMState
         _data = {k: [] for k in keys}
         field = {}
         # fill data
         for k in keys:
-            for state in state_list:
+            for state in rstate_list:
                 _data[k].append(state.field[k])
             field[k] = torch.stack(_data[k], dim=0)
         return RSSMState(**field)
 
-    def init_rssmState(self, batch_size=1):
+    def init_rstate(self, batch_size=1):
         return RSSMState(torch.zeros(batch_size, self.deter_dim, dtype=torch.float32), 
                         torch.zeros(batch_size, self.stoc_dim, dtype=torch.float32),
                         torch.zeros(batch_size, self.stoc_dim, dtype=torch.float32))
@@ -182,6 +185,27 @@ def mlp(in_dim, mlp_dims: List[int], out_dim, act_fn=nn.ELU, out_act=nn.Identity
     layers += [nn.Linear(mlp_dims[-1], out_dim), out_act()]
     return nn.Sequential(*layers)
 
+
+class Actor(nn.Module):
+    def __init__(self, deter_dim, stoc_dim, mlp_dims, action_dim):
+        super().__init__()
+        self._actor = mlp(deter_dim + stoc_dim, mlp_dims, action_dim * 2)
+        self.mu_scale = 5
+        self.init_std = 5
+        self.raw_init_std = np.log(np.exp(self.init_std) - 1)
+        self.min_std = 1e-4
+        # self.apply(orthogonal_init) 
+
+    def forward(self, obs):
+        x = self._actor(obs)
+        mu, std = torch.chunk(x, 2, dim=-1)
+        # bound the action to [-mu_scale, mu_scale] --> to avoid numerical instabilities.  
+        # For computing log-probabilities, we need to invert the tanh and this becomes difficult in highly saturated regions.
+        mu = self.mu_scale * torch.tanh(mu / self.mu_scale) 
+        std = F.softplus(std + self.raw_init_std) + self.min_std
+        return td.independent.Independent(h.SquashedNormal(mu, std), 1)
+
+# TODO: process the rest
 
 class NormalizeImg(nn.Module):
     """Normalizes pixel observations to [0,1) range."""
@@ -221,29 +245,6 @@ def encoder():
                 nn.Linear(cfg.enc_dim, cfg.latent_dim)]
     return nn.Sequential(*layers)
 
-
-class Actor(nn.Module):
-    def __init__(self, deter_dim, stoc_dim, mlp_dims, action_dim):
-        super().__init__()
-        # self.trunk = nn.Sequential(nn.Linear(deter_dim+stoc_dim, mlp_dims[0]),
-        #                     nn.LayerNorm(mlp_dims[0]), nn.Tanh())
-        # self._actor = mlp(mlp_dims[0], mlp_dims[1:], action_dim * 2)
-        self._actor = mlp(deter_dim + stoc_dim, mlp_dims, action_dim * 2)
-        self.mu_scale = 5
-        self.init_std = 5
-        self.raw_init_std = np.log(np.exp(self.init_std) - 1)
-        self.min_std = 1e-4
-        # self.apply(orthogonal_init) 
-
-    def forward(self, obs):
-        # feature = self.trunk(obs)
-        # x = self._actor(feature)
-        x = self._actor(obs)
-        mu, std = torch.chunk(x, 2, dim=-1)
-        # bound the action to [-mu_scale, mu_scale] --> to avoid numerical instabilities.  For computing log-probabilities, we need to invert the tanh and this becomes difficult in highly saturated regions.
-        mu = self.mu_scale * torch.tanh(mu / self.mu_scale) 
-        std = F.softplus(std + self.raw_init_std) + self.min_std
-        return td.independent.Independent(h.SquashedNormal(mu, std), 1)
     
 
 class Value(nn.Module):

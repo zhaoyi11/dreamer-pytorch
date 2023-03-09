@@ -20,7 +20,6 @@ def set_requires_grad(param, value):
 	for p in param:
 		p.requires_grad_(value)
 
-
 def count_vars(module):
   """ count parameters number of module"""
   return sum([np.prod(p.shape) for p in module.parameters()])
@@ -45,9 +44,9 @@ class Dreamer(object):
 
         # models
         if modality == 'pixels':
-            pass
             # self.encoder = nets.CNNEncoder().to(self.device)
             # self.decoder = nets.CNNDecoder().to(self.device)
+            pass
         else:
             self.encoder = nets.mlp(obs_shape[0], [mlp_dim, mlp_dim], embedding_dim).to(self.device)
             self.decoder = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim], obs_shape[0]).to(self.device)
@@ -55,11 +54,11 @@ class Dreamer(object):
         self.rssm = nets.RSSM(deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim).to(self.device)
         self.reward_fn = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim], 1).to(self.device)
 
-        # self.value = nets.Value(deter_dim, stoc_dim, mlp_dims=[mlp_dim, mlp_dim]).to(self.device)
-        # self.value_tar = nets.Value(deter_dim, stoc_dim, mlp_dims=[mlp_dim, mlp_dim]).to(self.device)
         self.value = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim, mlp_dim], 1).to(self.device)
         self.value_tar = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim, mlp_dim], 1).to(self.device)
-        
+        for p in self.value_tar.parameters():
+            p.requires_grad = False
+
         self.actor = nets.Actor(deter_dim, stoc_dim, [mlp_dim, mlp_dim, mlp_dim], action_dim).to(self.device)
 
         # init optimizers
@@ -70,7 +69,6 @@ class Dreamer(object):
         self.value_optim = optim.Adam(self.value.parameters(), lr=value_lr)
     
         self.free_nats = torch.tensor(free_nats, dtype=torch.float32, device=self.device)
-        # self.free_nats = free_nats
 
         self.coef_pred, self.coef_dyn, self.coef_rep = coef_pred, coef_dyn, coef_rep
         self.grad_clip_norm = grad_clip_norm
@@ -86,40 +84,40 @@ class Dreamer(object):
     def _update_world_model(self, obses, actions, rewards, nonterminals):
         """ The inputs sequences are: a, r, o | a, r, o| a, r, o"""
         L, B, x_dim = obses.shape
-        init_rssmState = self.rssm.init_rssmState(B).to(device=self.device)
+        init_rstate = self.rssm.init_rstate(B).to(device=self.device)
+        
         obs_embeddings = self.encoder(obses) # TODO: might a bug here.
-        prior_rssmState, posterior_rssmState = self.rssm.rollout(init_rssmState, actions, nonterminals, obs_embeddings)
+        prior_rstate, pos_rstate = self.rssm.rollout(init_rstate, actions, nonterminals, obs_embeddings)
         
         # TODO: might be a bug in the self.decoder() -- the input has one additional dim
-        # TODO: change to log likelihood
-        reconstruction_loss = F.mse_loss(self.decoder(posterior_rssmState.state), 
+        rec_loss = F.mse_loss(self.decoder(pos_rstate.state), 
                                         obses, reduction='none').sum(dim=2).mean(dim=(0, 1))
-        reward_loss = F.mse_loss(self.reward_fn(posterior_rssmState.state), rewards, reduction='none').sum(dim=2).mean(dim=(0, 1))
-        
-        # kl_dyn = torch.max(
-        #     kl_divergence(prior_rssmState.detach().dist, posterior_rssmState.dist),
-        #     self.free_nats).mean()
-        
-        # kl_rep = torch.max(
-        #     kl_divergence(prior_rssmState.dist, posterior_rssmState.detach().dist),
-        #     self.free_nats).mean()
+        reward_loss = F.mse_loss(self.reward_fn(pos_rstate.state),
+                                  rewards, reduction='none').sum(dim=2).mean(dim=(0, 1))
+
+        # kl_dyn = torch.maximum(
+        #     kl_divergence(prior_rstate.detach().dist, pos_rstate.dist).mean(),
+        #     self.free_nats) 
+
+        # kl_rep = torch.maximum(
+        #     kl_divergence(prior_rstate.dist, pos_rstate.detach().dist).mean(),
+        #     self.free_nats)
 
         # TODO: check kl, detach() 
-        kl_dyn = torch.maximum(kl_divergence(prior_rssmState.dist, posterior_rssmState.dist).mean(), self.free_nats)
+        kl_dyn = torch.maximum(kl_divergence(prior_rstate.dist, pos_rstate.dist).mean(), self.free_nats)
         kl_rep = 0.
-        loss = reconstruction_loss + reward_loss + kl_dyn + kl_rep
+        loss = rec_loss + reward_loss + kl_dyn + kl_rep
 
         self.world_optim.zero_grad()
         loss.backward()
         nn.utils.clip_grad_norm_(self.world_param, self.grad_clip_norm, norm_type=2)
         self.world_optim.step()
 
-        return {'world_loss': loss.item(), }, posterior_rssmState
+        return {'world_loss': loss.item(), }, pos_rstate
 
-    def _update_actor_critic(self, rssmState, logp):
-
+    def _update_actor_critic(self, rstate, logp):
         set_requires_grad(self.value.parameters(), False)
-        states = rssmState.state
+        states = rstate.state
         rewards = self.reward_fn(states)
         values = self.value_tar(states)
         
@@ -173,18 +171,18 @@ class Dreamer(object):
         returns = torch.flip(torch.stack(outputs), [0])
         return returns
 
-    def _image(self, rssmState):
+    def _image(self, rstate):
         # rollout the dynamic model forward to generate imagined trajectories 
-        imag_rssmStates, imag_logps = [rssmState], []
+        imag_rstates, imag_logps = [rstate], []
         for i in range(self.imag_length):
-            _rssm_state = imag_rssmStates[-1]
-            pi_dist = self.actor(_rssm_state.state.detach()) # notice that the state is detached
+            _rstate = imag_rstates[-1]
+            pi_dist = self.actor(_rstate.state.detach()) # notice that the state is detached
             action = pi_dist.rsample()
-            imag_rssmStates.append(self.rssm.onestep_image(_rssm_state, 
-                                                         action, nonterminal=True))
+            imag_rstates.append(self.rssm.image_step(_rstate, 
+                                                    action, nonterminal=True))
             imag_logps.append(pi_dist.log_prob(action))
-        # returned shape rssm_state: [imag_L+1, B, x_dim], logps: [imag_L, B] # TODO: be careful of the dimension.
-        return self.rssm.stack_rssmState(imag_rssmStates), torch.stack(imag_logps, dim=0).to(self.device)
+        # returned shape rstate: [imag_L+1, B, x_dim], logps: [imag_L, B] # TODO: be careful of the dimension.
+        return self.rssm.stack_rstate(imag_rstates), torch.stack(imag_logps, dim=0).to(self.device)
 
     def update(self, replay_iter):
         batch = next(replay_iter)
@@ -195,15 +193,16 @@ class Dreamer(object):
                                                 torch.swapaxes(nonterminal, 0, 1)
 
         metrics = {}
-        world_metrics, rssmState = self._update_world_model(next_obs, action, reward, nonterminal)
+        world_metrics, rstate = self._update_world_model(next_obs, action, reward, nonterminal)
         metrics.update(world_metrics)
 
+        # update actor critic in dreamer
         if self.algo_name in ['dreamerv1', 'dreamerv2']:
             set_requires_grad(self.world_param, False)
             # latent imagination
-            imag_rssmStates, imag_logp = self._image(rssmState.detach().flatten())
+            imag_rstates, imag_logp = self._image(rstate.detach().flatten())
             
-            metrics.update(self._update_actor_critic(imag_rssmStates, imag_logp))
+            metrics.update(self._update_actor_critic(imag_rstates, imag_logp))
             set_requires_grad(self.world_param, True)
 
             # soft update the target value function
@@ -211,18 +210,18 @@ class Dreamer(object):
         return metrics
 
     @torch.no_grad()
-    def infer_state(self, rssmState, action, observation):
+    def infer_state(self, prev_rstate, action, observation):
         if isinstance(observation, np.ndarray):
             observation = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
         if isinstance(action, np.ndarray):
             action = torch.tensor(action, dtype=torch.float32, device=self.device).unsqueeze(0)
         
-        prior_rssmState, posterior_rssmState = self.rssm.onestep_observe(self.encoder(observation), rssmState, action)
-        return posterior_rssmState 
+        _, pos_rstate = self.rssm.obs_step(self.encoder(observation), prev_rstate, action)
+        return pos_rstate 
 
     @torch.no_grad()
-    def select_action(self, rssm_state, step, eval_mode=False):
-        act_dist = self.actor(rssm_state.state)
+    def select_action(self, rstate, step, eval_mode=False):
+        act_dist = self.actor(rstate.state)
         if not eval_mode:
             action = act_dist.sample()
             action += 0.3 * torch.rand_like(action)
@@ -230,6 +229,12 @@ class Dreamer(object):
             action = act_dist.mean
 
         return action[0]
+    
+    @torch.no_grad()
+    def reset(self):
+        rstate, action = self.rssm.init_rstate().to(device=self.device),\
+                             np.zeros(self.action_dim) # init the dummy rstate and action
+        return rstate, action
 
     @torch.no_grad()
     def plan(self, rstate, step, eval_mode=False):
@@ -274,7 +279,7 @@ class Dreamer(object):
             score = torch.exp(temp * (elite_returns - max_return))
             score /= score.sum()
 
-            _mean = torch.sum(score.reshape(1, -1, 1) * elite_actions, dim=1) # weighted man and std over elites
+            _mean = torch.sum(score.reshape(1, -1, 1) * elite_actions, dim=1) # weighted mean and std over elites
             _stddev = torch.sqrt(torch.sum(score.reshape(1, -1, 1) * (elite_actions - _mean.unsqueeze(1)) ** 2, dim=1))
             
             # momentum udate of mean
