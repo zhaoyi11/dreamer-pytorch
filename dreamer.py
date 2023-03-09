@@ -39,13 +39,14 @@ class Dreamer(object):
                 coef_pred, coef_dyn, coef_rep,
                 imag_length,
                 device, 
+                num_channels=32,
                 mppi_kwargs=None):
         self.device = torch.device(device)
 
         # models
         if modality == 'pixels':
-            # self.encoder = nets.CNNEncoder().to(self.device)
-            # self.decoder = nets.CNNDecoder().to(self.device)
+            self.encoder = nets.CNNEncoder(obs_shape, num_channels, embedding_dim).to(self.device)
+            self.decoder = nets.CNNDecoder(deter_dim+stoc_dim, num_channels, obs_shape).to(self.device)
             pass
         else:
             self.encoder = nets.mlp(obs_shape[0], [mlp_dim, mlp_dim], embedding_dim).to(self.device)
@@ -82,16 +83,21 @@ class Dreamer(object):
         self.algo_name = algo_name
 
     def _update_world_model(self, obses, actions, rewards, nonterminals):
-        """ The inputs sequences are: a, r, o | a, r, o| a, r, o"""
-        L, B, x_dim = obses.shape
+        """ The inputs sequences are: a, r, o | a, r, o| a, r, o,
+        obses in shape [H, B, *obs_dim]"""
+        B = obses.shape[1]
         init_rstate = self.rssm.init_rstate(B).to(device=self.device)
         
-        obs_embeddings = self.encoder(obses) # TODO: might a bug here.
+        # import ipdb; ipdb.set_trace()
+        obs_embeddings = self.encoder(obses) 
+
         prior_rstate, pos_rstate = self.rssm.rollout(init_rstate, actions, nonterminals, obs_embeddings)
         
         # TODO: might be a bug in the self.decoder() -- the input has one additional dim
+        _obs_dim = list(range(len(obses.shape))[2:]) # if modality is state, it's 2, and if modality == pixels, it's (2, 3, 4)
+
         rec_loss = F.mse_loss(self.decoder(pos_rstate.state), 
-                                        obses, reduction='none').sum(dim=2).mean(dim=(0, 1))
+                                        obses, reduction='none').sum(dim=_obs_dim).mean(dim=(0, 1))
         reward_loss = F.mse_loss(self.reward_fn(pos_rstate.state),
                                   rewards, reduction='none').sum(dim=2).mean(dim=(0, 1))
 
@@ -191,6 +197,8 @@ class Dreamer(object):
         next_obs, action, reward, nonterminal = torch.swapaxes(next_obs, 0, 1), torch.swapaxes(action, 0, 1),\
                                                 torch.swapaxes(reward, 0, 1),\
                                                 torch.swapaxes(nonterminal, 0, 1)
+        # normalize next_obs
+        next_obs = next_obs / 255. -0.5
 
         metrics = {}
         world_metrics, rstate = self._update_world_model(next_obs, action, reward, nonterminal)

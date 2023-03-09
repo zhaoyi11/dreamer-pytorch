@@ -205,16 +205,6 @@ class Actor(nn.Module):
         std = F.softplus(std + self.raw_init_std) + self.min_std
         return td.independent.Independent(h.SquashedNormal(mu, std), 1)
 
-# TODO: process the rest
-
-class NormalizeImg(nn.Module):
-    """Normalizes pixel observations to [0,1) range."""
-    def __init__(self):
-        super().__init__()
-
-    def forward(self, x):
-        return x.div(255.)
-
 
 class Flatten(nn.Module):
     """Flattens its input to a (batched) vector."""
@@ -224,56 +214,63 @@ class Flatten(nn.Module):
     def forward(self, x):
         return x.view(x.size(0), -1)
 
-def encoder():
-    """Returns a TOLD encoder."""
-    def _get_out_shape(in_shape, layers):
+
+class CNNEncoder(nn.Module):
+    def __init__(self, obs_shape, num_channels, embedding_dim):
+        super().__init__()
+        C, H, W = obs_shape
+        C = int(C) # num of input channels
+        assert H == W == 64 # the architecture is for images with shape C*64*64
+
+        _layers = [
+            nn.Conv2d(C, 8 * num_channels, 4, stride=2), nn.ReLU(),
+            nn.Conv2d(8 * num_channels, 4 * num_channels, 4, stride=2), nn.ReLU(),
+            nn.Conv2d(4 * num_channels, 2 * num_channels, 4, stride=2), nn.ReLU(),
+            nn.Conv2d(2 * num_channels, num_channels, 4, stride=2), nn.ReLU()]
+        output_shape = self._get_output_shape((C, H, W), _layers)
+        _layers.extend([Flatten(), nn.Linear(np.prod(output_shape), embedding_dim)])
+
+        self._encoder = nn.Sequential(*_layers)
+
+        # self.apply(orthogonal_init)
+
+    def _get_output_shape(self, in_shape, layers):
         """Utility function. Returns the output shape of a network for a given input shape."""
         x = torch.randn(*in_shape).unsqueeze(0)
         return (nn.Sequential(*layers) if isinstance(layers, list) else layers)(x).squeeze(0).shape
 
-    if cfg.modality == 'pixels':
-        C = int(3*cfg.frame_stack)
-        layers = [NormalizeImg(),
-                nn.Conv2d(C, cfg.num_channels, 7, stride=2), nn.ReLU(),
-                nn.Conv2d(cfg.num_channels, cfg.num_channels, 5, stride=2), nn.ReLU(),
-                nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2), nn.ReLU(),
-                nn.Conv2d(cfg.num_channels, cfg.num_channels, 3, stride=2), nn.ReLU()]
-        out_shape = _get_out_shape((C, cfg.img_size, cfg.img_size), layers)
-        layers.extend([Flatten(), nn.Linear(np.prod(out_shape), cfg.latent_dim)])
-    else:
-        layers = [nn.Linear(cfg.obs_shape[0], cfg.enc_dim), nn.ELU(),
-                nn.Linear(cfg.enc_dim, cfg.latent_dim)]
-    return nn.Sequential(*layers)
-
-    
-
-class Value(nn.Module):
-    def __init__(self, deter_dim, stoc_dim, mlp_dims):
-        super().__init__()
-        self.trunk = nn.Sequential(nn.Linear(deter_dim+stoc_dim, mlp_dims[0]),
-                            nn.LayerNorm(mlp_dims[0]), nn.Tanh())
-        self._value = mlp(mlp_dims[0], mlp_dims[1:], 1)
-
-        self.apply(orthogonal_init)
-
-    def forward(self, z):
-        feature = self.trunk(z)
-        return self._value(feature)
-
-
-class CNNEncoder(nn.Module):
-    def __init__(self, obs_shape, mlp_dims, latent_dim):
-        super().__init__()
-        self._encoder = net.mlp(obs_shape[0], mlp_dims, latent_dim,)
-        self.apply(net.orthogonal_init)
-
     def forward(self, obs):
-        out = self._encoder(obs)
+        batch_shape = obs.shape[:-3] 
+        img_shape = obs.shape[-3:]
+        out = self._encoder(obs.reshape(-1, *img_shape))
+        out = torch.reshape(out, (*batch_shape, -1))
         return out
 
 
 class CNNDecoder(nn.Module):
-    pass
+    def __init__(self, input_dim, num_channels, output_shape):
+        super().__init__()
+        self.embedding_dim = 32 * num_channels
+        self.output_shape = output_shape
+        C = int(output_shape[0]) # input channel
+        self._fc1 = nn.Linear(input_dim, self.embedding_dim)
+        self._decoder = nn.Sequential(nn.ConvTranspose2d(self.embedding_dim, 4 * num_channels, 5, stride=2), nn.ReLU(),
+                            nn.ConvTranspose2d(4 * num_channels, 2 * num_channels, 5, stride=2), nn.ReLU(),
+                            nn.ConvTranspose2d(2 * num_channels, num_channels, 6, stride=2), nn.ReLU(),
+                            nn.ConvTranspose2d(num_channels, C, 6, stride=2))
+
+        # self.apply(orthogonal_init)
+
+    def forward(self, x):
+        batch_shape = x.shape[:-1]
+        input_dim = x.shape[-1]
+        squeezed_dim = np.prod(batch_shape).item()
+        x = x.reshape(squeezed_dim, input_dim)
+        x = self._fc1(x)
+        x = x.reshape(squeezed_dim, self.embedding_dim, 1, 1)
+        x = self._decoder(x)
+        out = x.reshape(*batch_shape, *self.output_shape)
+        return out
 
 
 def orthogonal_init(m):

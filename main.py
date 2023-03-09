@@ -76,10 +76,18 @@ class Workspace(object):
 
     def setup(self,):
         # create envs
+        if self.cfg.modality == "pixels":
+            _render_kwargs = {
+                'img_size': self.cfg.img_size,
+                'pixel_only': True,
+                'frame_stack': self.cfg.frame_stack,
+            }
+        else:
+            _render_kwargs = None
         self.train_env = make_env(self.cfg.env_name, self.cfg.seed, self.cfg.action_repeat,
-                                       self.cfg.modality, self.cfg.frame_stack)
+                                       self.cfg.modality, _render_kwargs)
         self.eval_env = make_env(self.cfg.env_name, self.cfg.seed+100, self.cfg.action_repeat,
-                                       self.cfg.modality, self.cfg.frame_stack)
+                                       self.cfg.modality, _render_kwargs)
         self.cfg.obs_shape = tuple(int(x) for x in self.train_env.observation_spec().shape)
         self.cfg.action_shape = tuple(int(x) for x in self.train_env.action_spec().shape)
 
@@ -251,6 +259,7 @@ class Workspace(object):
                                                 dtype=self.train_env.action_spec().dtype)
             # interact with environment
             time_step = self.train_env.step(action)
+            
             episode_reward += time_step.reward
             self.replay_storage.add(time_step)
             if self.video_recorder is not None:

@@ -1,9 +1,8 @@
 # @package _global_
 modality: pixels
-frame_stack: 3
+frame_stack: 1
 
-train_episode: 3000
-num_channels: 32
-img_size: 84
-
-batch_size: 256 # 
+train_episode: 1000
+num_channels: 48
+img_size: 64
+ 

@@ -236,7 +236,7 @@ class ConcatObsWrapper(dm_env.Environment):
         return time_step._replace(observation=np.concatenate([v.flatten() for v in obs.values()]))
 
 
-def make_env(env_name, seed, action_repeat, modality='proprio', frame_stack=1):
+def make_env(env_name, seed, action_repeat, modality='proprio', img_kwarg=None):
     """
     Make environment for TD-MPC experiments.
     Adapted from https://github.com/facebookresearch/drqv2
@@ -263,13 +263,14 @@ def make_env(env_name, seed, action_repeat, modality='proprio', frame_stack=1):
     if modality == "pixels":
         # add rendering for classical tasks
         if (domain, task) in suite.ALL_TASKS:
+            img_size = img_kwarg.get('img_size')
             camera_id = dict(quadruped=2).get(domain, 0)
-            render_kwargs = dict(height=84, width=84, camera_id=camera_id)
+            render_kwargs = dict(height=img_size, width=img_size, camera_id=camera_id)
             env = pixels.Wrapper(env, 
-                                pixels_only=True, 
+                                pixels_only=img_kwarg.get('pixels_only'), 
                                 render_kwargs=render_kwargs)
         # stack frames if needed
-        env = FrameStackWrapper(env, frame_stack, pixels_key)
+        env = FrameStackWrapper(env, img_kwarg.get('frame_stack'), pixels_key)
     else:
         assert (domain, task) in suite.ALL_TASKS
         env = ConcatObsWrapper(env) 
