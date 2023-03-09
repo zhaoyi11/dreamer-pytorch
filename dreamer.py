@@ -42,7 +42,7 @@ class Dreamer(object):
                 num_channels=32,
                 mppi_kwargs=None):
         self.device = torch.device(device)
-
+        self.modality = modality
         # models
         if modality == 'pixels':
             self.encoder = nets.CNNEncoder(obs_shape, num_channels, embedding_dim).to(self.device)
@@ -206,8 +206,9 @@ class Dreamer(object):
         next_obs, action, reward, nonterminal = torch.swapaxes(next_obs, 0, 1), torch.swapaxes(action, 0, 1),\
                                                 torch.swapaxes(reward, 0, 1),\
                                                 torch.swapaxes(nonterminal, 0, 1)
-        # normalize next_obs
-        next_obs = next_obs / 255. -0.5
+        # normalize next_obs if pixels
+        if self.modality == 'pixels':
+            next_obs = next_obs / 255. -0.5
 
         metrics = {}
         world_metrics, rstate = self._update_world_model(next_obs, action, reward, nonterminal)
