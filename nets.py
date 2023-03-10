@@ -108,7 +108,6 @@ class RSSM(nn.Module):
         prior_std = F.softplus(prior_std) + self.min_std_dev
 
         prior_rstate = RSSMState(deter_state, prior_mu, prior_std)
-
         return prior_rstate
     
     def obs_step(self, obs_embedding, prev_rstate, action, nonterminal=True):
@@ -173,6 +172,7 @@ class RSSM(nn.Module):
         return RSSMState(torch.zeros(batch_size, self.deter_dim, dtype=torch.float32), 
                         torch.zeros(batch_size, self.stoc_dim, dtype=torch.float32),
                         torch.zeros(batch_size, self.stoc_dim, dtype=torch.float32))
+
 
 def mlp(in_dim, mlp_dims: List[int], out_dim, act_fn=nn.ELU, out_act=nn.Identity):
     """Returns an MLP."""

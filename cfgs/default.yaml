@@ -34,7 +34,7 @@ nstep: 1
 embedding_dim: 1024
 mlp_dim: 400
 deter_dim: 200
-stoc_dim: 30
+stoc_dim: 50
 
 # replay buffer
 replay_buffer_size: 1e6
@@ -43,12 +43,12 @@ replay_buffer_num_workers: 4
 cnn_active_fn: relu
 mlp_active_fn: elu
 
-expl_noise: 0.3
-free_nats: 3 # or 1 TODO:
+expl_noise: 0.2
+free_nats: 1
 
 coef_pred: 1
-coef_dyn: 0.5
-coef_rep: 0.1
+coef_dyn: 0.8
+coef_rep: 0.2
 
 world_lr: 6e-4
 actor_lr: 8e-5
@@ -61,7 +61,7 @@ disclam: 0.95
 
 # options
 save_video: false
-use_wandb: false
+use_wandb: true
 save_buffer: false
 save_model: false
 save_interval: 500

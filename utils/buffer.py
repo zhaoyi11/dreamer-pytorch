@@ -156,15 +156,10 @@ class ReplayBuffer(IterableDataset):
         reward = episode['reward'][idx: idx+self._chunk_size]
         nonterminal = episode['discount'][idx: idx+self._chunk_size]
         
-        # next_obses, acts, rews, discounts = [], [], [], []
-        # for t in range(self._nstep):
-        #     _idx = idx + t
-        #     next_obses.append(episode['observation'][_idx])
-        #     acts.append(episode['action'][_idx])
-        #     rews.append(episode['reward'][_idx])
-        #     discounts.append(episode['discount'][_idx])
-        # next_obses, acts, rews, discounts = np.stack(next_obses, axis=0), np.stack(acts, axis=0), np.stack(rews, axis=0), np.stack(discounts, axis=0)
-
+        # normalize image inputs from 0-256 to -0.5 - 0.5
+        if next_obs.ndim == 5:
+            next_obs = next_obs / 255. - 0.5
+            
         return (next_obs, action, reward, nonterminal)
 
     def __iter__(self):

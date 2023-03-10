@@ -39,6 +39,7 @@ class Dreamer(object):
                 coef_pred, coef_dyn, coef_rep,
                 imag_length,
                 device, 
+                target_update_freq=100,
                 num_channels=32,
                 mppi_kwargs=None):
         self.device = torch.device(device)
@@ -81,6 +82,8 @@ class Dreamer(object):
         self.action_dim = action_dim
 
         self.algo_name = algo_name
+        self.target_update_freq = target_update_freq
+        self.update_counter = 0
 
     def _update_world_model(self, obses, actions, rewards, nonterminals):
         """ The inputs sequences are: a, r, o | a, r, o| a, r, o,
@@ -88,31 +91,23 @@ class Dreamer(object):
         B = obses.shape[1]
         init_rstate = self.rssm.init_rstate(B).to(device=self.device)
         
-        # import ipdb; ipdb.set_trace()
         obs_embeddings = self.encoder(obses) 
-
         prior_rstate, pos_rstate = self.rssm.rollout(init_rstate, actions, nonterminals, obs_embeddings)
         
-        # TODO: might be a bug in the self.decoder() -- the input has one additional dim
-        _obs_dim = list(range(len(obses.shape))[2:]) # if modality is state, it's 2, and if modality == pixels, it's (2, 3, 4)
-
+        _obs_dim = list(range(obses.ndim)[2:]) # if modality is state, it's 2, and if modality == pixels, it's (2, 3, 4)
         rec_loss = F.mse_loss(self.decoder(pos_rstate.state), 
                                         obses, reduction='none').sum(dim=_obs_dim).mean(dim=(0, 1))
-        reward_loss = F.mse_loss(self.reward_fn(pos_rstate.state),
-                                  rewards, reduction='none').sum(dim=2).mean(dim=(0, 1))
+        reward_loss = F.mse_loss(self.reward_fn(pos_rstate.state[:-1]),
+                                  rewards[1:], reduction='none').sum(dim=2).mean(dim=(0, 1)) # (s1, a1, r1, d1, s2) --> r1 = f(s1)  
+        
+        kl_rep = torch.maximum(
+            kl_divergence(pos_rstate.dist, prior_rstate.detach().dist).mean(),
+            self.free_nats) 
 
-        # kl_dyn = torch.maximum(
-        #     kl_divergence(prior_rstate.detach().dist, pos_rstate.dist).mean(),
-        #     self.free_nats) 
-
-        # kl_rep = torch.maximum(
-        #     kl_divergence(prior_rstate.dist, pos_rstate.detach().dist).mean(),
-        #     self.free_nats)
-
-        # TODO: check kl, detach() 
-        kl_dyn = torch.maximum(kl_divergence(prior_rstate.dist, pos_rstate.dist).mean(), self.free_nats)
-        kl_rep = 0.
-        loss = rec_loss + reward_loss + kl_dyn + kl_rep
+        kl_dyn = torch.maximum(
+            kl_divergence(pos_rstate.detach().dist, prior_rstate.dist).mean(),
+            self.free_nats)
+        loss = rec_loss + reward_loss + 0.2 * kl_rep + 0.8 * kl_dyn
 
         self.world_optim.zero_grad()
         loss.backward()
@@ -122,15 +117,19 @@ class Dreamer(object):
         return {'world_loss': loss.item(),
                 'rec_loss': rec_loss.item(), 
                 'reward_loss': reward_loss.item(),
+                'kl_dyn_loss': kl_dyn.item(),
+                'kl_rep_loss': kl_rep.item(),
+                'prior_ent': prior_rstate.dist.entropy().mean().item(),
+                'posterior_ent': pos_rstate.dist.entropy().mean().item(),
                 'state_mean': pos_rstate.state.mean().item(),
                 'state_max': pos_rstate.state.max().item(),
                 'state_min': pos_rstate.state.min().item(),
                 'world_grad_norm': grad_norm.item()},\
                 pos_rstate
 
-    def _update_actor_critic(self, rstate, logp):
+    def _update_actor_critic(self, imag_rstate, logp):
         set_requires_grad(self.value.parameters(), False)
-        states = rstate.state
+        states = imag_rstate.state
         rewards = self.reward_fn(states)
         values = self.value_tar(states)
         
@@ -147,9 +146,8 @@ class Dreamer(object):
         actor_loss.backward()
         self.actor_optim.step()        
 
-        set_requires_grad(self.value.parameters(), True)
-        
         # update value function
+        set_requires_grad(self.value.parameters(), True)
         target_v = returns.detach()
         pred_v = self.value(states.detach())[:-1]
         value_loss = F.mse_loss(pred_v, target_v)
@@ -200,15 +198,13 @@ class Dreamer(object):
         return self.rssm.stack_rstate(imag_rstates), torch.stack(imag_logps, dim=0).to(self.device)
 
     def update(self, replay_iter):
+        self.update_counter += 1
         batch = next(replay_iter)
         next_obs, action, reward, nonterminal = to_torch(batch, self.device, dtype=torch.float32)
         # swap the batch and horizon dimension -> [H, B, _shape]
         next_obs, action, reward, nonterminal = torch.swapaxes(next_obs, 0, 1), torch.swapaxes(action, 0, 1),\
                                                 torch.swapaxes(reward, 0, 1),\
                                                 torch.swapaxes(nonterminal, 0, 1)
-        # normalize next_obs if pixels
-        if self.modality == 'pixels':
-            next_obs = next_obs / 255. -0.5
 
         metrics = {}
         world_metrics, rstate = self._update_world_model(next_obs, action, reward, nonterminal)
@@ -222,9 +218,10 @@ class Dreamer(object):
             
             metrics.update(self._update_actor_critic(imag_rstates, imag_logp))
             set_requires_grad(self.world_param, True)
-
-            # soft update the target value function
-            helper.soft_update_params(self.value, self.value_tar, tau=0.005) # TODO: check whether we should tune the tau
+        
+            if self.update_counter % self.target_update_freq == 0:
+                # update the target value function
+                helper.soft_update_params(self.value, self.value_tar, tau=1)
         return metrics
 
     @torch.no_grad()
