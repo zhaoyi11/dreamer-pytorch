@@ -36,6 +36,8 @@ mlp_dim: 400
 deter_dim: 200
 stoc_dim: 50
 
+mlp_layer: 4
+
 # replay buffer
 replay_buffer_size: 1e6
 replay_buffer_num_workers: 4
@@ -46,6 +48,8 @@ mlp_active_fn: elu
 expl_noise: 0.2
 free_nats: 1
 
+actor_ent: 1e-4
+
 coef_pred: 1
 coef_dyn: 0.8
 coef_rep: 0.2
@@ -54,6 +58,7 @@ world_lr: 6e-4
 actor_lr: 8e-5
 value_lr: 8e-5
 grad_clip_norm: 100
+weight_decay: 1e-6
 
 imag_horizon: 15
 discount: 0.99

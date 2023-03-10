@@ -34,8 +34,9 @@ class Dreamer(object):
                 algo_name,
                 deter_dim, stoc_dim, mlp_dim, embedding_dim,
                 obs_shape, action_dim, 
-                world_lr, actor_lr, value_lr, grad_clip_norm,
-                free_nats,
+                mlp_layer,
+                world_lr, actor_lr, value_lr, grad_clip_norm, weight_decay,
+                actor_ent, free_nats,
                 coef_pred, coef_dyn, coef_rep,
                 imag_length,
                 device, 
@@ -50,25 +51,25 @@ class Dreamer(object):
             self.decoder = nets.CNNDecoder(deter_dim+stoc_dim, num_channels, obs_shape).to(self.device)
             pass
         else:
-            self.encoder = nets.mlp(obs_shape[0], [mlp_dim, mlp_dim], embedding_dim).to(self.device)
-            self.decoder = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim], obs_shape[0]).to(self.device)
+            self.encoder = nets.mlp(obs_shape[0], [mlp_dim]*mlp_layer, embedding_dim).to(self.device)
+            self.decoder = nets.mlp(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, obs_shape[0]).to(self.device)
 
         self.rssm = nets.RSSM(deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim).to(self.device)
-        self.reward_fn = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim], 1).to(self.device)
+        self.reward_fn = nets.mlp(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, 1).to(self.device)
 
-        self.value = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim, mlp_dim], 1).to(self.device)
-        self.value_tar = nets.mlp(deter_dim+stoc_dim, [mlp_dim, mlp_dim, mlp_dim], 1).to(self.device)
+        self.value = nets.mlp(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, 1).to(self.device)
+        self.value_tar = nets.mlp(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, 1).to(self.device)
         for p in self.value_tar.parameters():
             p.requires_grad = False
 
-        self.actor = nets.Actor(deter_dim, stoc_dim, [mlp_dim, mlp_dim, mlp_dim], action_dim).to(self.device)
+        self.actor = nets.Actor(deter_dim, stoc_dim, [mlp_dim]*mlp_layer, action_dim).to(self.device)
 
         # init optimizers
         self.world_param = chain(self.rssm.parameters(), self.encoder.parameters(),
                                 self.decoder.parameters(), self.reward_fn.parameters())
-        self.world_optim = optim.Adam(self.world_param, lr=world_lr)
-        self.actor_optim = optim.Adam(self.actor.parameters(), lr=actor_lr)
-        self.value_optim = optim.Adam(self.value.parameters(), lr=value_lr)
+        self.world_optim = optim.Adam(self.world_param, lr=world_lr, weight_decay=weight_decay)
+        self.actor_optim = optim.Adam(self.actor.parameters(), lr=actor_lr, weight_decay=weight_decay)
+        self.value_optim = optim.Adam(self.value.parameters(), lr=value_lr, weight_decay=weight_decay)
     
         self.free_nats = torch.tensor(free_nats, dtype=torch.float32, device=self.device)
 
@@ -81,6 +82,7 @@ class Dreamer(object):
         self.mppi_kwargs = mppi_kwargs
         self.action_dim = action_dim
 
+        self.actor_ent = actor_ent
         self.algo_name = algo_name
         self.target_update_freq = target_update_freq
         self.update_counter = 0
@@ -127,26 +129,42 @@ class Dreamer(object):
                 'world_grad_norm': grad_norm.item()},\
                 pos_rstate
 
-    def _update_actor_critic(self, imag_rstate, logp):
+    def _update_actor_critic(self, imag_rstate, policy_ent):
         set_requires_grad(self.value.parameters(), False)
         states = imag_rstate.state
         rewards = self.reward_fn(states)
         values = self.value_tar(states)
         
         pcont = self.discount * torch.ones_like(rewards).detach()
-
-        # TODO: add logp -> check the shape of the logp [H, B]
-        # values[1:] -= 1e-5 * logp
-
         returns = self._cal_returns(rewards[:-1], values[:-1], values[-1], pcont[:-1], lambda_=self.disclam)
-        discount = torch.cumprod(torch.cat([torch.ones_like(pcont[:1]),\
-                                            pcont[:-2]],0),0).detach()
-        actor_loss = -torch.mean(discount * returns)
+        weights = torch.cumprod(torch.cat([torch.ones_like(pcont[:1]),\
+                                            pcont[:-2]],0),0).detach()        
+        
+        # update actor
+        # Actions:      0   [a1]  [a2]   a3
+        #                  ^  |  ^  |  ^  |
+        #                 /   v /   v /   v
+        # States:     [z0]->[z1]-> z2 -> z3
+        # Targets:     t0   [t1]  [t2]
+        # Entropies:        [e1]  [e2]   e3
+        # Weights:    [ 1]  [w1]   w2    
+        # Loss:              l1    l2
+
+        objective = returns[1:] # drop the first returns at the start of the traj because it from the replay buffer
+        objective += self.actor_ent * policy_ent[:-1].unsqueeze(-1)
+        
+        actor_loss = -torch.mean(weights[:-1] * objective)
         self.actor_optim.zero_grad()
         actor_loss.backward()
         self.actor_optim.step()        
 
         # update value function
+        # States:     [z0]  [z1]  [z2]   z3
+        # Rewards:    [r0]  [r1]  [r2]   r3
+        # Values:     [v0]  [v1]  [v2]   v3
+        # Weights:    [ 1]  [w1]  [w2]   w3
+        # Targets:    [t0]  [t1]  [t2]
+        # Loss:        l0    l1    l2
         set_requires_grad(self.value.parameters(), True)
         target_v = returns.detach()
         pred_v = self.value(states.detach())[:-1]
@@ -157,7 +175,8 @@ class Dreamer(object):
         self.value_optim.step()
         return {'value': pred_v.mean().item(), 
                 'actor_loss':actor_loss.item(), 
-                'value_loss':value_loss.item()}
+                'value_loss':value_loss.item(),
+                'policy_ent': policy_ent.mean().item(),}
     
     def _cal_returns(self, reward, value, bootstrap, pcont, lambda_):
         """
@@ -195,7 +214,8 @@ class Dreamer(object):
                                                     action, nonterminal=True))
             imag_logps.append(pi_dist.log_prob(action))
         # returned shape rstate: [imag_L+1, B, x_dim], logps: [imag_L, B] # TODO: be careful of the dimension.
-        return self.rssm.stack_rstate(imag_rstates), torch.stack(imag_logps, dim=0).to(self.device)
+        # - before logp is to convert it to entropy
+        return self.rssm.stack_rstate(imag_rstates), -torch.stack(imag_logps, dim=0)
 
     def update(self, replay_iter):
         self.update_counter += 1
@@ -214,9 +234,9 @@ class Dreamer(object):
         if self.algo_name in ['dreamerv1', 'dreamerv2']:
             set_requires_grad(self.world_param, False)
             # latent imagination
-            imag_rstates, imag_logp = self._image(rstate.detach().flatten())
+            imag_rstates, policy_ent = self._image(rstate.detach().flatten())
             
-            metrics.update(self._update_actor_critic(imag_rstates, imag_logp))
+            metrics.update(self._update_actor_critic(imag_rstates, policy_ent))
             set_requires_grad(self.world_param, True)
         
             if self.update_counter % self.target_update_freq == 0:
@@ -239,7 +259,7 @@ class Dreamer(object):
         act_dist = self.actor(rstate.state)
         if not eval_mode:
             action = act_dist.sample()
-            action += 0.3 * torch.rand_like(action)
+            action += 0.2 * torch.rand_like(action)
         else:
             action = act_dist.mean
 
