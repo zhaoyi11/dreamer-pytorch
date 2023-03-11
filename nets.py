@@ -228,7 +228,10 @@ class CNNEncoder(nn.Module):
             nn.Conv2d(4 * num_channels, 2 * num_channels, 4, stride=2), nn.ReLU(),
             nn.Conv2d(2 * num_channels, num_channels, 4, stride=2), nn.ReLU()]
         output_shape = self._get_output_shape((C, H, W), _layers)
-        _layers.extend([Flatten(), nn.Linear(np.prod(output_shape), embedding_dim)])
+        if np.prod(output_shape) == embedding_dim:
+            _layers.extend([nn.Identity()])
+        else:
+            _layers.extend([Flatten(), nn.Linear(np.prod(output_shape), embedding_dim)])
 
         self._encoder = nn.Sequential(*_layers)
 
