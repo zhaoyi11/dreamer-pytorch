@@ -11,7 +11,7 @@ seed: -1 # generate random seed if seed == -1 (by defalut)
 env_name: ${env_name}
 algo_name: dreamerv1 # [planet, dreamerv1, dreamerv2]
 exp_name: default
-modality: 
+modality: ${modality}
 # training
 device: ???
 obs_shape: ???
@@ -29,7 +29,6 @@ update_every_episode: 100
 batch_size: 50
 chunk_size: 50
 imag_length: 15
-nstep: 1
 
 embedding_dim: 1024
 mlp_dim: 400
@@ -60,7 +59,6 @@ value_lr: 8e-5
 grad_clip_norm: 100
 weight_decay: 1e-6
 
-imag_horizon: 15
 discount: 0.99
 disclam: 0.95
 

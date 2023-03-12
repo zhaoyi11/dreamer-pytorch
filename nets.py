@@ -95,6 +95,8 @@ class RSSM(nn.Module):
         self.fc_posterior = nn.Sequential(
             nn.Linear(deter_dim + embedding_dim, mlp_dim), act_fn(),
             nn.Linear(mlp_dim, 2 * stoc_dim))
+        
+        self.apply(orthogonal_init)
 
     def image_step(self, prev_rstate, action, nonterminal=True):
         """
@@ -186,6 +188,17 @@ def mlp(in_dim, mlp_dims: List[int], out_dim, act_fn=nn.ELU, out_act=nn.Identity
     return nn.Sequential(*layers)
 
 
+class MLP(nn.Module):
+    def __init__(self, in_dim, mlp_dims: List[int], out_dim, act_fn=nn.ELU, out_act=nn.Identity):
+        super().__init__()
+        self._fc = mlp(in_dim, mlp_dims, out_dim, act_fn, out_act)
+
+        self.apply(orthogonal_init)
+    
+    def forward(self, x):
+        return self._fc(x)
+
+
 class Actor(nn.Module):
     def __init__(self, deter_dim, stoc_dim, mlp_dims, action_dim):
         super().__init__()
@@ -194,7 +207,7 @@ class Actor(nn.Module):
         self.init_std = 5
         self.raw_init_std = np.log(np.exp(self.init_std) - 1)
         self.min_std = 1e-4
-        # self.apply(orthogonal_init) 
+        self.apply(orthogonal_init) 
 
     def forward(self, obs):
         x = self._actor(obs)
@@ -204,15 +217,6 @@ class Actor(nn.Module):
         mu = self.mu_scale * torch.tanh(mu / self.mu_scale) 
         std = F.softplus(std + self.raw_init_std) + self.min_std
         return td.independent.Independent(h.SquashedNormal(mu, std), 1)
-
-
-class Flatten(nn.Module):
-    """Flattens its input to a (batched) vector."""
-    def __init__(self):
-        super().__init__()
-        
-    def forward(self, x):
-        return x.view(x.size(0), -1)
 
 
 class CNNEncoder(nn.Module):
@@ -228,14 +232,13 @@ class CNNEncoder(nn.Module):
             nn.Conv2d(4 * num_channels, 2 * num_channels, 4, stride=2), nn.ReLU(),
             nn.Conv2d(2 * num_channels, num_channels, 4, stride=2), nn.ReLU()]
         output_shape = self._get_output_shape((C, H, W), _layers)
-        if np.prod(output_shape) == embedding_dim:
-            _layers.extend([nn.Identity()])
-        else:
-            _layers.extend([Flatten(), nn.Linear(np.prod(output_shape), embedding_dim)])
-
         self._encoder = nn.Sequential(*_layers)
 
-        # self.apply(orthogonal_init)
+        if np.prod(output_shape) == embedding_dim:
+            self.fc = nn.Identity()
+        else:
+            self.fc = nn.Linear(np.prod(output_shape), embedding_dim)
+        self.apply(orthogonal_init)
 
     def _get_output_shape(self, in_shape, layers):
         """Utility function. Returns the output shape of a network for a given input shape."""
@@ -247,6 +250,7 @@ class CNNEncoder(nn.Module):
         img_shape = obs.shape[-3:]
         out = self._encoder(obs.reshape(-1, *img_shape))
         out = torch.reshape(out, (*batch_shape, -1))
+        out = self.fc(out)
         return out
 
 
@@ -262,7 +266,7 @@ class CNNDecoder(nn.Module):
                             nn.ConvTranspose2d(2 * num_channels, num_channels, 6, stride=2), nn.ReLU(),
                             nn.ConvTranspose2d(num_channels, C, 6, stride=2))
 
-        # self.apply(orthogonal_init)
+        self.apply(orthogonal_init)
 
     def forward(self, x):
         batch_shape = x.shape[:-1]

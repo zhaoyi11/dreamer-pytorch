@@ -51,14 +51,14 @@ class Dreamer(object):
             self.decoder = nets.CNNDecoder(deter_dim+stoc_dim, num_channels, obs_shape).to(self.device)
             pass
         else:
-            self.encoder = nets.mlp(obs_shape[0], [mlp_dim]*mlp_layer, embedding_dim).to(self.device)
-            self.decoder = nets.mlp(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, obs_shape[0]).to(self.device)
+            self.encoder = nets.MLP(obs_shape[0], [mlp_dim]*mlp_layer, embedding_dim).to(self.device)
+            self.decoder = nets.MLP(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, obs_shape[0]).to(self.device)
 
         self.rssm = nets.RSSM(deter_dim, stoc_dim, embedding_dim, action_dim, mlp_dim).to(self.device)
-        self.reward_fn = nets.mlp(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, 1).to(self.device)
+        self.reward_fn = nets.MLP(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, 1).to(self.device)
 
-        self.value = nets.mlp(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, 1).to(self.device)
-        self.value_tar = nets.mlp(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, 1).to(self.device)
+        self.value = nets.MLP(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, 1).to(self.device)
+        self.value_tar = nets.MLP(deter_dim+stoc_dim, [mlp_dim]*mlp_layer, 1).to(self.device)
         for p in self.value_tar.parameters():
             p.requires_grad = False
 
@@ -67,9 +67,9 @@ class Dreamer(object):
         # init optimizers
         self.world_param = chain(self.rssm.parameters(), self.encoder.parameters(),
                                 self.decoder.parameters(), self.reward_fn.parameters())
-        self.world_optim = optim.Adam(self.world_param, lr=world_lr, weight_decay=weight_decay)
-        self.actor_optim = optim.Adam(self.actor.parameters(), lr=actor_lr, weight_decay=weight_decay)
-        self.value_optim = optim.Adam(self.value.parameters(), lr=value_lr, weight_decay=weight_decay)
+        self.world_optim = optim.Adam(self.world_param, lr=world_lr)
+        self.actor_optim = optim.Adam(self.actor.parameters(), lr=actor_lr)
+        self.value_optim = optim.Adam(self.value.parameters(), lr=value_lr)
     
         # grad scaler
         self.world_scaler = GradScaler()
@@ -108,13 +108,15 @@ class Dreamer(object):
             reward_loss = F.mse_loss(self.reward_fn(pos_rstate.state[:-1]),
                                     rewards[1:], reduction='none').sum(dim=2).mean(dim=(0, 1)) # (s1, a1, r1, d1, s2) --> r1 = f(s1)  
             
-            kl_rep = torch.maximum(
-                kl_divergence(pos_rstate.dist, prior_rstate.detach().dist).mean(),
-                self.free_nats) 
+            kl_rep = torch.maximum(kl_divergence(prior_rstate.dist, pos_rstate.dist).mean(), self.free_nats)
+            kl_dyn = 0.
+            # kl_rep = torch.maximum(
+            #     kl_divergence(pos_rstate.dist, prior_rstate.detach().dist).mean(),
+            #     self.free_nats) 
 
-            kl_dyn = torch.maximum(
-                kl_divergence(pos_rstate.detach().dist, prior_rstate.dist).mean(),
-                self.free_nats)
+            # kl_dyn = torch.maximum(
+            #     kl_divergence(pos_rstate.detach().dist, prior_rstate.dist).mean(),
+            #     self.free_nats)
             loss = rec_loss + reward_loss + 0.2 * kl_rep + 0.8 * kl_dyn
 
         self.world_optim.zero_grad(set_to_none=True)
@@ -127,7 +129,7 @@ class Dreamer(object):
         return {'world_loss': loss.item(),
                 'rec_loss': rec_loss.item(), 
                 'reward_loss': reward_loss.item(),
-                'kl_dyn_loss': kl_dyn.item(),
+                # 'kl_dyn_loss': kl_dyn.item(),
                 'kl_rep_loss': kl_rep.item(),
                 'prior_ent': prior_rstate.dist.entropy().mean().item(),
                 'posterior_ent': pos_rstate.dist.entropy().mean().item(),
@@ -227,7 +229,7 @@ class Dreamer(object):
             action = pi_dist.rsample()
             imag_rstates.append(self.rssm.image_step(_rstate, 
                                                     action, nonterminal=True))
-            imag_logps.append(pi_dist.log_prob(action))
+            imag_logps.append(pi_dist.log_prob(action)) # TODO: check wehter to detach action
         # returned shape rstate: [imag_L+1, B, x_dim], logps: [imag_L, B] # TODO: be careful of the dimension.
         # - before logp is to convert it to entropy
         return self.rssm.stack_rstate(imag_rstates), -torch.stack(imag_logps, dim=0)
