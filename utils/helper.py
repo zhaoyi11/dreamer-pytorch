@@ -16,6 +16,9 @@ except ModuleNotFoundError:
 
 __REDUCE__ = lambda b: 'mean' if b else 'none'
 
+def norm_pixels(x):
+    return (x / 255.) - 0.5
+
 
 def mse(pred, target, reduce=False):
     """Computes the MSE loss between predictions and targets."""

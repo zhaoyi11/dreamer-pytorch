@@ -156,10 +156,6 @@ class ReplayBuffer(IterableDataset):
         reward = episode['reward'][idx: idx+self._chunk_size]
         nonterminal = episode['discount'][idx: idx+self._chunk_size]
         
-        # normalize image inputs from 0-256 to -0.5 - 0.5
-        if next_obs.ndim == 4:
-            next_obs = next_obs / 255. - 0.5
-            
         return (next_obs, action, reward, nonterminal)
 
     def __iter__(self):

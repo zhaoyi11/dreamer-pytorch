@@ -243,9 +243,13 @@ class Dreamer(object):
                                                 torch.swapaxes(reward, 0, 1),\
                                                 torch.swapaxes(nonterminal, 0, 1)
 
+        if self.modality == 'pixels':
+            next_obs = helper.norm_pixels(next_obs)
+
         metrics = {}
         world_metrics, rstate = self._update_world_model(next_obs, action, reward, nonterminal)
         metrics.update(world_metrics)
+
 
         # update actor critic in dreamer
         if self.algo_name in ['dreamerv1', 'dreamerv2']:
@@ -265,6 +269,8 @@ class Dreamer(object):
     def infer_state(self, prev_rstate, action, observation):
         if isinstance(observation, np.ndarray):
             observation = torch.tensor(observation, dtype=torch.float32, device=self.device).unsqueeze(0)
+            if self.modality == 'pixels':
+                helper.norm_pixels(observation)
         if isinstance(action, np.ndarray):
             action = torch.tensor(action, dtype=torch.float32, device=self.device).unsqueeze(0)
         
