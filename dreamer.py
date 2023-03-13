@@ -274,6 +274,9 @@ class Dreamer(object):
         if isinstance(action, np.ndarray):
             action = torch.tensor(action, dtype=torch.float32, device=self.device).unsqueeze(0)
         
+        if self.modality == 'pixels':
+            observation = helper.norm_pixels(observation)
+        
         _, pos_rstate = self.rssm.obs_step(self.encoder(observation), prev_rstate, action)
         return pos_rstate 
 
